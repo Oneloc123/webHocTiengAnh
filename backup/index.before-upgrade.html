@@ -1,0 +1,2184 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Vocab • Flashcard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.js"></script>
+<style>
+:root{
+  --bg:#000;--surface:#121212;--card:#1a1a1a;--text:#fff;--muted:#8f8f8f;
+  --border:#2a2a2a;--primary:#fe2c55;--primary2:#25f4ee;
+  --success:#22c55e;--warning:#f59e0b;--danger:#ef4444;
+  --nav-h:54px;--radius:14px;
+}
+:root[data-theme="light"]{
+  --bg:#f2f2f4;--surface:#fff;--card:#fff;--text:#111827;--muted:#6b7280;
+  --border:#e5e7eb;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;margin:0;padding:0;}
+body{
+  font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  background:var(--bg);color:var(--text);overscroll-behavior:none;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%; /* iOS không tự phóng to chữ khi xoay ngang */
+}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;font-size:inherit;}
+input,select,textarea{font-family:inherit;font-size:16px;}
+.hidden{display:none!important;}
+
+/* ============ APP SHELL ============ */
+.app{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);}
+#pageContent{
+  flex:1;position:relative;overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0px) + 10px);
+}
+#pageContent.page--feed{overflow:hidden;padding-bottom:0;}
+
+/* ============ BOTTOM NAV ============ */
+.bottomnav{
+  display:flex;align-items:center;justify-content:space-around;
+  height:calc(var(--nav-h) + env(safe-area-inset-bottom,0px));
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  background:var(--surface);border-top:1px solid var(--border);
+  position:relative;z-index:60;flex-shrink:0;
+}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  font-size:10px;color:var(--muted);height:100%;transition:color .15s;}
+.nav-btn i{font-size:21px;font-style:normal;line-height:1;}
+.nav-btn.active{color:var(--text);}
+.nav-add{flex:0 0 auto;}
+.nav-add i{
+  display:flex;align-items:center;justify-content:center;
+  width:46px;height:31px;border-radius:9px;font-size:23px;font-weight:800;color:#fff;
+  background:linear-gradient(100deg,var(--primary2) 0%,var(--primary) 55%,var(--primary) 100%);
+  box-shadow:0 3px 14px rgba(254,44,85,.35);
+}
+
+/* ============ FEED (TIKTOK) ============ */
+.feed-head{
+  position:absolute;top:0;left:0;right:0;z-index:30;
+  display:flex;align-items:center;justify-content:center;
+  padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 12px;
+  background:linear-gradient(180deg,rgba(0,0,0,.6) 0%,rgba(0,0,0,.25) 60%,transparent 100%);
+  pointer-events:none;
+}
+.feed-head > *{pointer-events:auto;}
+.feed-tabs{display:flex;gap:12px;align-items:center;}
+.ftab{color:rgba(255,255,255,.55);font-size:14px;font-weight:700;padding:4px 2px;position:relative;transition:color .2s;white-space:nowrap;flex-shrink:0;}
+.ftab.active{color:#fff;}
+.ftab.active::after{content:'';position:absolute;left:50%;transform:translateX(-50%);bottom:-3px;
+  width:22px;height:2.5px;background:#fff;border-radius:3px;}
+.feed-head-right{position:absolute;right:12px;top:calc(env(safe-area-inset-top,0px) + 10px);}
+.icon-btn{color:#fff;font-size:13px;font-weight:700;background:rgba(255,255,255,.16);
+  border-radius:20px;padding:5px 11px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
+
+.feed{
+  position:absolute;inset:0;overflow-y:scroll;overflow-x:hidden;
+  scroll-snap-type:y mandatory;-webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  overscroll-behavior-y:contain;touch-action:pan-y;
+}
+.feed::-webkit-scrollbar{display:none;}
+
+.slide{
+  position:relative;height:100%;width:100%;
+  scroll-snap-align:start;scroll-snap-stop:always;
+  overflow:hidden;background:#000;color:#fff;
+  contain:content;
+}
+/* Bỏ filter + thu nhỏ vùng vẽ: mỗi thẻ bớt một lớp filter toàn màn hình khi lướt */
+.slide-bg{position:absolute;inset:0;z-index:0;pointer-events:none;}
+.slide::after{
+  content:'';position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(0,0,0,.6) 0%,rgba(0,0,0,.08) 28%,rgba(0,0,0,.05) 48%,rgba(0,0,0,.9) 100%);
+}
+.slide-inner{
+  position:absolute;inset:0;z-index:2;
+  display:flex;align-items:center;justify-content:center;
+  padding:calc(env(safe-area-inset-top,0px) + 76px) 82px calc(env(safe-area-inset-bottom,0px) + 108px) 22px;
+  touch-action:manipulation; /* bỏ delay ~300ms và tắt double-tap zoom, để tap lật / double-tap lưu ăn ngay */
+}
+/* Từ tiếng Anh nằm trong khối riêng, cố định ở đầu thẻ nên khi lật thẻ
+   cỡ chữ và vị trí của nó không hề thay đổi. Chỉ phần nghĩa hiện dần lên. */
+.card-stack{
+  width:100%;height:100%;min-height:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  padding-top:clamp(30px,18vh,150px);  /* đưa từ tiếng Anh lên cao hơn trên điện thoại */
+  padding-top:clamp(30px,18dvh,150px); /* ưu tiên dvh: ổn định khi thanh địa chỉ mobile ẩn/hiện */
+  text-align:center;
+  overflow-y:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  -webkit-user-select:none;user-select:none; /* nhấn đúp để lưu từ không bị bôi đen chữ */
+  touch-action:manipulation;
+}
+.card-stack::-webkit-scrollbar{display:none;}
+.word-block{
+  flex:0 0 auto;width:100%;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+}
+.detail{
+  flex:0 0 auto;width:100%;
+  display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:10px;
+  animation:fadeIn .26s ease-out;
+}
+.detail-front{display:flex;}
+.detail-back{display:none;}
+.slide.flipped .detail-front{display:none;}
+.slide.flipped .detail-back{display:flex;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+
+.big-word{font-size:clamp(30px,9.5vw,46px);font-weight:800;letter-spacing:-.8px;line-height:1.1;word-break:break-word;}
+.ipa{font-size:15px;color:rgba(255,255,255,.6);font-weight:500;}
+.tap-hint{margin-top:4px;font-size:12.5px;color:rgba(255,255,255,.5);
+  border:1px dashed rgba(255,255,255,.28);border-radius:20px;padding:6px 14px;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+.divider{width:44px;height:2px;background:rgba(255,255,255,.3);border-radius:2px;margin:8px 0;}
+.meaning{font-size:clamp(20px,6.5vw,28px);font-weight:700;line-height:1.3;}
+.pos{display:inline-block;font-size:11.5px;padding:3px 10px;border-radius:20px;
+  border:1px solid rgba(255,255,255,.28);color:rgba(255,255,255,.85);}
+.example{font-size:14px;font-style:italic;color:rgba(255,255,255,.72);line-height:1.5;max-width:340px;}
+.note{font-size:12px;color:rgba(255,255,255,.55);}
+
+.slide-meta{
+  position:absolute;top:calc(env(safe-area-inset-top,0px) + 54px);left:14px;right:14px;
+  z-index:3;display:flex;justify-content:space-between;align-items:center;gap:8px;
+  font-size:11.5px;color:rgba(255,255,255,.7);pointer-events:none;
+}
+.pill{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.15);
+  padding:3px 10px;border-radius:20px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+.rail{
+  position:absolute;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 100px);
+  z-index:3;display:flex;flex-direction:column;gap:18px;align-items:center;
+}
+.rail-btn{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:26px;line-height:1;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.6);
+  transition:transform .15s;background:none;
+}
+.rail-btn span{font-size:10.5px;font-weight:600;color:rgba(255,255,255,.9);}
+.rail-btn:active{transform:scale(.86);}
+
+.rate-row{
+  position:absolute;left:12px;right:78px;
+  bottom:calc(env(safe-area-inset-bottom,0px) + 20px);
+  z-index:4;display:flex;gap:8px;
+  opacity:0;transform:translateY(16px);pointer-events:none;visibility:hidden;
+  transition:opacity .22s ease,transform .22s cubic-bezier(.32,.72,0,1),visibility .22s;
+}
+.slide.flipped .rate-row{opacity:1;transform:none;pointer-events:auto;visibility:visible;}
+.rate-btn{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:9px 4px;border-radius:13px;font-size:19px;line-height:1;
+  background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.18);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#fff;
+  transition:transform .12s,background .15s;
+}
+.rate-btn span{font-size:10px;font-weight:700;white-space:nowrap;}
+.rate-btn:active{transform:scale(.93);}
+.rate-btn.good{background:rgba(34,197,94,.28);border-color:rgba(34,197,94,.5);}
+.rate-btn.mid{background:rgba(245,158,11,.28);border-color:rgba(245,158,11,.5);}
+.rate-btn.bad{background:rgba(239,68,68,.28);border-color:rgba(239,68,68,.5);}
+
+.heart-pop{
+  position:absolute;left:50%;top:45%;transform:translate(-50%,-50%) scale(0);
+  font-size:90px;z-index:6;pointer-events:none;opacity:0;
+}
+.heart-pop.go{animation:heartPop .8s ease forwards;}
+@keyframes heartPop{
+  0%{transform:translate(-50%,-50%) scale(0);opacity:0;}
+  40%{transform:translate(-50%,-50%) scale(1.25);opacity:1;}
+  70%{transform:translate(-50%,-50%) scale(.95);opacity:1;}
+  100%{transform:translate(-50%,-50%) scale(1.6);opacity:0;}
+}
+
+.scroll-cue{
+  position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 88px);
+  transform:translateX(-50%);z-index:3;font-size:22px;color:rgba(255,255,255,.55);
+  animation:cue 1.8s infinite;pointer-events:none;
+}
+@keyframes cue{0%,100%{transform:translate(-50%,0);opacity:.4}50%{transform:translate(-50%,-8px);opacity:.9}}
+
+/* Nội dung trượt nhẹ theo thao tác lướt (chỉ transform/opacity nên chạy trên compositor).
+   Trình duyệt không hỗ trợ scroll-driven animation sẽ bỏ qua, không ảnh hưởng gì. */
+@supports (animation-timeline: view()){
+  @media (prefers-reduced-motion: no-preference){
+    .feed .slide .slide-inner{
+      animation:slideEnter linear both;
+      animation-timeline:view();
+      animation-range:entry 0% entry 60%;
+    }
+  }
+}
+@keyframes slideEnter{
+  from{opacity:.45;transform:translateY(22px) scale(.975);}
+  to{opacity:1;transform:none;}
+}
+
+.empty-state{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;text-align:center;
+  color:var(--muted);padding:40px;font-size:15px;line-height:1.6;background:var(--bg);
+}
+
+/* ============ GENERIC PAGES ============ */
+.page-head{
+  position:sticky;top:0;z-index:20;background:var(--bg);
+  padding:calc(env(safe-area-inset-top,0px) + 16px) 16px 12px;
+  border-bottom:1px solid var(--border);
+}
+.page-title{font-size:22px;font-weight:800;letter-spacing:-.4px;}
+.page-sub{font-size:13px;color:var(--muted);margin-top:3px;}
+.pad{padding:14px 14px 0;}
+.section{margin:14px 0;padding:0 14px;}
+.section-title{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.6px;margin:18px 0 8px;}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:12px;}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:11px 16px;border-radius:12px;font-size:14px;font-weight:700;
+  background:var(--primary);color:#fff;transition:transform .12s,opacity .15s;
+  border:none;
+}
+.btn:active{transform:scale(.96);}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text);}
+.btn.dark{background:var(--card);border:1px solid var(--border);color:var(--text);}
+.btn.danger{background:var(--danger);}
+.btn.success{background:var(--success);}
+.btn.wide{width:100%;}
+.btn.sm{padding:7px 12px;font-size:13px;border-radius:10px;}
+
+.search-wrap{position:relative;margin-top:12px;}
+.search-input{
+  width:100%;padding:11px 14px;border-radius:12px;border:1px solid var(--border);
+  background:var(--card);color:var(--text);font-size:15px;outline:none;
+}
+.search-input:focus{border-color:var(--primary);}
+
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 0 2px;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+.chips::-webkit-scrollbar{display:none;}
+.chip{
+  white-space:nowrap;flex-shrink:0;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;
+  background:var(--card);border:1px solid var(--border);color:var(--muted);transition:all .15s;
+}
+.chip.active{background:var(--text);color:var(--bg);border-color:var(--text);}
+
+/* word rows */
+.word-row{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 14px;background:var(--card);border:1px solid var(--border);
+  border-radius:12px;margin-bottom:8px;transition:transform .12s;
+}
+.word-row:active{transform:scale(.985);}
+.wr-main{min-width:0;flex:1;}
+.wr-word{font-size:16px;font-weight:700;display:flex;align-items:center;gap:6px;}
+.wr-ipa{font-size:12px;color:var(--muted);margin-top:1px;}
+.wr-meaning{font-size:13.5px;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wr-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0;}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.dot-new{background:#64748b;}.dot-learning{background:var(--warning);}
+.dot-learned{background:var(--success);}.dot-review{background:var(--danger);}
+.wr-acc{font-size:11px;color:var(--muted);font-weight:600;}
+.star{font-size:12px;}
+
+/* ============ PROFILE ============ */
+.profile-head{
+  padding:calc(env(safe-area-inset-top,0px) + 24px) 16px 20px;
+  background:linear-gradient(160deg,rgba(254,44,85,.13),rgba(37,244,238,.07) 60%,transparent);
+  border-bottom:1px solid var(--border);
+}
+.avatar{
+  width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:30px;background:linear-gradient(135deg,var(--primary2),var(--primary));
+  box-shadow:0 6px 22px rgba(254,44,85,.3);margin-bottom:12px;
+}
+.pname{font-size:20px;font-weight:800;letter-spacing:-.3px;}
+.pstreak{font-size:13px;color:var(--muted);margin-top:3px;}
+.pstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0 16px;}
+.pstats > div{text-align:center;background:var(--card);border:1px solid var(--border);
+  border-radius:12px;padding:10px 4px;}
+.pstats b{display:block;font-size:18px;font-weight:800;}
+.pstats span{font-size:10.5px;color:var(--muted);}
+.pactions{display:flex;gap:8px;}
+.pactions .btn{flex:1;}
+
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;}
+.stat b{display:block;font-size:21px;font-weight:800;}
+.stat span{font-size:11.5px;color:var(--muted);}
+
+.src-item{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:11px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.src-item:last-child{border-bottom:none;}
+.src-name{font-size:14px;font-weight:600;word-break:break-word;flex:1;min-width:120px;}
+.src-meta{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.src-actions{display:flex;gap:6px;align-items:center;}
+
+.dropzone{
+  border:2px dashed var(--border);border-radius:var(--radius);padding:22px;
+  text-align:center;color:var(--muted);font-size:13.5px;transition:all .2s;
+}
+.dropzone.drag{border-color:var(--primary);background:rgba(254,44,85,.06);}
+
+.switch-row{display:flex;align-items:center;gap:9px;font-size:14px;margin-top:10px;color:var(--muted);}
+.switch-row input{width:18px;height:18px;accent-color:var(--primary);}
+
+
+/* ============ LOCAL DICTIONARY ============ */
+.dict-status{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:11px 12px;border:1px solid var(--border);border-radius:12px;
+  background:var(--card);margin-bottom:10px;
+}
+.dict-status-main{display:flex;align-items:center;gap:9px;min-width:0;}
+.dict-dot{width:9px;height:9px;border-radius:50%;background:#64748b;flex-shrink:0;}
+.dict-dot.ok{background:var(--success);box-shadow:0 0 0 4px rgba(34,197,94,.12);}
+.dict-dot.busy{background:var(--warning);animation:pulse 1s infinite;}
+.dict-name{font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dict-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+.dict-actions{display:flex;gap:6px;flex-shrink:0;}
+.dict-preview{
+  max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:12px;
+  margin-top:12px;
+}
+.dict-preview table{width:100%;border-collapse:collapse;font-size:12px;}
+.dict-preview th,.dict-preview td{padding:8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;}
+.dict-preview th{position:sticky;top:0;background:var(--surface);z-index:1;}
+.dict-fill{color:var(--success);font-weight:700;}
+.dict-skip{color:var(--muted);}
+.dict-overwrite{color:var(--warning);font-weight:700;}
+.dict-stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px;}
+.dict-stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px;text-align:center;}
+.dict-stat b{display:block;font-size:17px;}
+.dict-stat span{font-size:10.5px;color:var(--muted);}
+
+/* ============ ADD FORM ============ */
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600;}
+.field input{
+  width:100%;padding:11px 13px;border-radius:12px;border:1px solid var(--border);
+  background:var(--card);color:var(--text);outline:none;transition:border-color .15s;
+}
+.field input:focus{border-color:var(--primary);}
+
+/* ============ GAMES ============ */
+.game-cards{display:grid;gap:10px;margin-bottom:14px;}
+.game-card{
+  display:flex;align-items:center;gap:12px;padding:16px;border-radius:var(--radius);
+  background:var(--card);border:1px solid var(--border);text-align:left;transition:transform .12s;
+  color:var(--text);
+}
+.game-card:active{transform:scale(.975);}
+.gc-emoji{font-size:26px;}
+.game-card b{display:block;font-size:15px;}
+.game-card small{display:block;font-size:12px;color:var(--muted);margin-top:1px;}
+.game-opt{
+  display:block;width:100%;text-align:left;padding:14px 16px;border-radius:12px;
+  background:var(--card);border:1px solid var(--border);margin-bottom:8px;
+  font-size:15px;color:var(--text);transition:all .15s;
+}
+.game-opt:active{transform:scale(.98);}
+.game-opt.correct{background:var(--success);border-color:var(--success);color:#fff;}
+.game-opt.wrong{background:var(--danger);border-color:var(--danger);color:#fff;}
+
+/* ============ SHEET / MODAL ============ */
+.sheet-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;
+  display:flex;align-items:flex-end;opacity:0;transition:opacity .22s;
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+}
+.sheet-overlay.show{opacity:1;}
+.sheet{
+  width:100%;max-height:82vh;max-height:82dvh;overflow-y:auto; /* dvh: không bị thanh địa chỉ mobile che mất đáy sheet */
+  background:var(--surface);border-radius:22px 22px 0 0;
+  padding:10px 18px calc(28px + env(safe-area-inset-bottom,0px));
+  transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);
+  -webkit-overflow-scrolling:touch;
+}
+.sheet-overlay.show .sheet{transform:none;}
+.sheet-grab{width:38px;height:4px;border-radius:4px;background:var(--border);margin:6px auto 16px;}
+.sheet h3{margin:0 0 4px;font-size:22px;font-weight:800;word-break:break-word;}
+.sheet .s-ipa{color:var(--muted);font-size:14px;margin-bottom:12px;}
+.sheet .s-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;
+  border-bottom:1px solid var(--border);font-size:13.5px;}
+.sheet .s-row:last-of-type{border-bottom:none;}
+.sheet .s-row span:first-child{color:var(--muted);}
+.sheet .s-row span:last-child{font-weight:600;text-align:right;}
+
+/* ============ TOAST ============ */
+#toast{
+  position:fixed;left:50%;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0px) + 26px);
+  transform:translate(-50%,14px);z-index:300;
+  background:rgba(30,30,30,.94);color:#fff;border:1px solid rgba(255,255,255,.12);
+  padding:10px 20px;border-radius:18px;font-size:13.5px;font-weight:600;
+  opacity:0;pointer-events:none;transition:all .25s;
+  max-width:calc(100vw - 32px);white-space:normal;text-align:center;line-height:1.45;word-break:break-word; /* toast dài (tên file CSV, tên bộ) không tràn màn hình */
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+}
+#toast.show{opacity:1;transform:translate(-50%,0);}
+
+/* ============ DESKTOP ============ */
+@media(min-width:820px){
+  .app{max-width:520px;margin:0 auto;border-left:1px solid var(--border);border-right:1px solid var(--border);}
+  .bottomnav{max-width:520px;}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div id="pageContent"></div>
+  <nav class="bottomnav">
+    <button class="nav-btn" data-page="learn"><i>🏠</i><span>Feed</span></button>
+    <button class="nav-btn" data-page="words"><i>🔍</i><span>Khám phá</span></button>
+    <button class="nav-btn nav-add" data-page="add"><i>＋</i></button>
+    <button class="nav-btn" data-page="games"><i>🎮</i><span>Games</span></button>
+    <button class="nav-btn" data-page="profile"><i>👤</i><span>Hồ sơ</span></button>
+  </nav>
+</div>
+
+<script>
+/* ==================================================================
+   STORAGE
+================================================================== */
+const STORE_KEY='vocabularyApp_v1';
+function loadStore(){
+  try{
+    const raw=localStorage.getItem(STORE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){console.warn('storage read failed',e);}
+  return {
+    words:[],favorites:[],
+    statistics:{totalReviews:0,totalCorrect:0,totalWrong:0,history:{}},
+    settings:{theme:'dark',dailyGoal:20,soundOn:true},
+    streak:{count:0,lastDate:null},
+    sources:{},sourceProgress:{},
+    cardHistory:{log:[],lastWordId:null,lastQueueIds:null,lastIdx:0,lastSource:null,lastTopic:null}
+  };
+}
+let DB=loadStore();
+if(!DB.cardHistory) DB.cardHistory={log:[],lastWordId:null,lastQueueIds:null,lastIdx:0,lastSource:null,lastTopic:null};
+if(!DB.cardHistory.log) DB.cardHistory.log=[];
+if(!DB.sourceProgress) DB.sourceProgress={};
+if(!DB.settings) DB.settings={theme:'dark',dailyGoal:20,soundOn:true};
+if(!DB.statistics) DB.statistics={totalReviews:0,totalCorrect:0,totalWrong:0,history:{}};
+if(!DB.streak) DB.streak={count:0,lastDate:null};
+if(!DB.sources) DB.sources={};
+
+let saveTimer=null;
+function writeStore(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
+  catch(e){ console.warn('save failed',e); }
+}
+function save(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{ saveTimer=null; writeStore(); },120);
+}
+/* Ghi ngay phần đang chờ debounce — tránh mất tiến độ khi trang bị ẩn/đóng */
+function flushSave(){
+  if(saveTimer==null) return;
+  clearTimeout(saveTimer);
+  saveTimer=null;
+  writeStore();
+}
+/* Điện thoại chuyển app / đóng tab / tải lại → ghi ngay thay vì chờ debounce */
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') flushSave(); });
+window.addEventListener('pagehide',flushSave);
+window.addEventListener('beforeunload',flushSave);
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function esc(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;').replace(/"/g,'&quot;')
+    .replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ==================================================================
+   DEMO DATA
+================================================================== */
+const DEMO=[
+["interview","/ˈɪntərvjuː/","phỏng vấn","noun","I have an interview tomorrow.",""],
+["lodge","/lɒdʒ/","nhà nghỉ","noun","We stayed at a small lodge.",""],
+["interior","/ɪnˈtɪəriər/","nội thất / bên trong","noun","The interior design is modern.",""],
+["absence","/ˈæbsəns/","sự vắng mặt","noun","His absence was noticed.",""],
+["abundance","/əˈbʌndəns/","sự phong phú","noun","There is an abundance of food.",""],
+["absurd","/əbˈsɜːrd/","vô lý","adjective","That's an absurd idea.",""],
+["inward","/ˈɪnwərd/","hướng vào trong","adjective","She felt an inward calm.",""],
+["abnormal","/æbˈnɔːrməl/","bất thường","adjective","The results were abnormal.",""],
+["diligent","/ˈdɪlɪdʒənt/","chăm chỉ","adjective","She is a diligent student.",""],
+["resilient","/rɪˈzɪliənt/","kiên cường","adjective","He is a resilient person.",""]
+];
+
+/* ==================================================================
+   CSV MAPPING
+================================================================== */
+const FIELD_ALIASES={
+  word:['từ vựng','word','vocabulary','english','term'],
+  ipa:['phiên âm','pronunciation','ipa','phonetic'],
+  meaning:['nghĩa','meaning','translation','vietnamese','definition'],
+  pos:['loại từ','part of speech','pos','type'],
+  example:['ví dụ','example','sentence'],
+  note:['ghi chú','note','notes'],
+  topic:['chủ đề','topic','category','theme','subject']
+};
+function detectMapping(headers){
+  const map={};
+  const norm=h=>String(h||'').toLowerCase().trim().replace(/^\uFEFF/,'');
+  headers.forEach((h,i)=>{
+    const nh=norm(h);
+    for(const field in FIELD_ALIASES){
+      if(map[field]!==undefined) continue;
+      if(FIELD_ALIASES[field].some(a=>nh===a||nh.includes(a))) map[field]=i;
+    }
+  });
+  return map;
+}
+
+/* ==================================================================
+   WORD MODEL / SRS
+================================================================== */
+function makeId(word,source){ return (source+'::'+word).toLowerCase().replace(/\s+/g,'_'); }
+function newWordObj(w){
+  return Object.assign({
+    status:'new', level:0, ease:2.5, correctCount:0, wrongCount:0, reviewCount:0,
+    lastReviewed:null, nextReview:null, favorite:false, confidence:0, topic:''
+  }, w);
+}
+const SRS_INTERVALS=[10/1440,1,2,4,7,14,30];
+
+function mergeWords(newWords){
+  let added=0, merged=0;
+  newWords.forEach(nw=>{
+    const existing=DB.words.find(w=>w.id===nw.id);
+    if(existing){
+      existing.pronunciation=nw.pronunciation||existing.pronunciation;
+      existing.meaning=nw.meaning||existing.meaning;
+      existing.partOfSpeech=nw.partOfSpeech||existing.partOfSpeech;
+      existing.example=nw.example||existing.example;
+      existing.note=nw.note||existing.note;
+      existing.topic=nw.topic||existing.topic;
+      merged++;
+    } else { DB.words.push(nw); added++; }
+  });
+  return {added,merged};
+}
+
+function scheduleWord(w,correct){
+  w.reviewCount++;
+  w.lastReviewed=new Date().toISOString();
+  if(correct){
+    w.correctCount++;
+    w.level=Math.min(w.level+1,SRS_INTERVALS.length-1);
+    w.status = w.level>=3 ? 'learned' : 'learning';
+  } else {
+    w.wrongCount++;
+    w.level=Math.max(w.level-2,0);
+    w.status='review';
+  }
+  const days=SRS_INTERVALS[w.level];
+  w.nextReview=new Date(Date.now()+days*86400000).toISOString();
+  w.confidence = w.reviewCount ? Math.round(100*w.correctCount/w.reviewCount) : 0;
+
+  DB.statistics.totalReviews++;
+  if(correct) DB.statistics.totalCorrect++; else DB.statistics.totalWrong++;
+  const t=todayStr();
+  DB.statistics.history[t]=DB.statistics.history[t]||{learned:0,reviews:0};
+  DB.statistics.history[t].reviews++;
+  updateStreak();
+  save();
+}
+function updateStreak(){
+  const t=todayStr();
+  if(DB.streak.lastDate===t) return;
+  const y=new Date(Date.now()-86400000).toISOString().slice(0,10);
+  DB.streak.count = (DB.streak.lastDate===y) ? DB.streak.count+1 : 1;
+  DB.streak.lastDate=t;
+}
+
+function counts(){
+  const w=DB.words;
+  return {
+    total:w.length,
+    new:w.filter(x=>x.status==='new').length,
+    learning:w.filter(x=>x.status==='learning').length,
+    learned:w.filter(x=>x.status==='learned').length,
+    review:w.filter(x=>x.status==='review').length,
+    dueToday:dueWords().length
+  };
+}
+function dueWords(){
+  const now=new Date();
+  return DB.words.filter(w=>
+    (w.nextReview && new Date(w.nextReview)<=now) ||
+    w.status==='review' || w.status==='new' ||
+    (w.reviewCount>0 && w.wrongCount>w.correctCount)
+  );
+}
+
+/* ==================================================================
+   SOURCE HELPERS
+================================================================== */
+function getSourcePool(name){ return DB.words.filter(w=>w.sourceFile===name); }
+function getTopicPool(name){ return DB.words.filter(w=>w.topic===name); }
+/* Tiến độ dùng chung: bộ từ lưu theo tên file, chủ đề lưu theo khoá "topic::<tên>" trong cùng store */
+function progressOf(key,pool){
+  const prog=DB.sourceProgress[key]||null;
+  const viewed = prog && Array.isArray(prog.viewed)
+    ? prog.viewed.filter(id=>pool.some(w=>w.id===id)).length : 0;
+  const total=pool.length;
+  const pct= total ? Math.round(100*viewed/total) : 0;
+  const lastWord = prog && prog.lastWordId ? pool.find(w=>w.id===prog.lastWordId)||null : null;
+  let lastIdx=-1;
+  if(prog){
+    if(prog.lastWordId) lastIdx=pool.findIndex(w=>w.id===prog.lastWordId);
+    if(lastIdx<0 && typeof prog.lastIdx==='number' && prog.lastIdx<total){
+      lastIdx=prog.lastIdx;
+    }
+  }
+  return {viewed,total,pct,lastWord,lastIdx,updatedAt:prog?prog.updatedAt:null};
+}
+function getSourceProgress(name){ return progressOf(name, getSourcePool(name)); }
+function getTopicProgress(name){ return progressOf('topic::'+name, getTopicPool(name)); }
+/* Khoá tiến độ của buổi học hiện tại: ưu tiên chủ đề, sau đó tới bộ từ */
+function currentProgressKey(){ return currentTopic ? 'topic::'+currentTopic : currentSource; }
+function touchSourceProgress(w){
+  const key=currentProgressKey();
+  if(!key) return;
+  const p = DB.sourceProgress[key] ||
+    (DB.sourceProgress[key]={viewed:[],lastWordId:null,lastIdx:0,updatedAt:null});
+  if(!Array.isArray(p.viewed)) p.viewed=[];
+  if(!p.viewed.includes(w.id)) p.viewed.push(w.id);
+  p.lastWordId=w.id;
+  p.lastIdx=learnIdx;
+  p.updatedAt=new Date().toISOString();
+}
+
+/* ==================================================================
+   QUEUE / HISTORY
+================================================================== */
+let learnQueue=[], learnIdx=0, currentSource=null, currentTopic=null;
+let _resumeToast=null;
+let _queueIdsRef=null, _queueIdsCache=null;
+/* Cache danh sách id của hàng đợi — tránh map lại toàn bộ mảng mỗi lần lướt sang thẻ mới */
+function cachedQueueIds(){
+  if(_queueIdsRef!==learnQueue){ _queueIdsRef=learnQueue; _queueIdsCache=learnQueue.map(w=>w.id); }
+  return _queueIdsCache;
+}
+
+function buildLearnQueue(pool,opts){
+  opts=opts||{};
+  learnQueue = pool && pool.length ? pool.slice() : DB.words.filter(w=>w.status!=='learned');
+  if(learnQueue.length===0) learnQueue=DB.words.slice();
+  learnIdx=0;
+  currentSource=opts.source||null;
+  currentTopic=opts.topic||null;
+
+  // Khôi phục vị trí đã học trong bộ (trừ khi freshStart)
+  const pkey=currentProgressKey();
+  if(pkey && !opts.freshStart && opts.resume!==false){
+    const prog=DB.sourceProgress[pkey];
+    if(prog){
+      let target=-1;
+      if(prog.lastWordId) target=learnQueue.findIndex(w=>w.id===prog.lastWordId);
+      if(target<0 && typeof prog.lastIdx==='number'){
+        target=Math.min(Math.max(0,prog.lastIdx),learnQueue.length-1);
+      }
+      if(target>0){
+        learnIdx=target;
+        _resumeToast=`⏪ Tiếp tục "${currentTopic||currentSource}" tại vị trí ${learnIdx+1}/${learnQueue.length}`;
+      }
+    }
+  }
+
+  DB.cardHistory.lastQueueIds=learnQueue.map(w=>w.id);
+  DB.cardHistory.lastIdx=learnIdx;
+  DB.cardHistory.lastSource=currentSource;
+  DB.cardHistory.lastTopic=currentTopic;
+  save();
+  return {resumed:learnIdx>0, idx:learnIdx};
+}
+
+/* Khôi phục buổi học trước (đúng hàng đợi + vị trí) khi mở lại app.
+   Dùng cardHistory đã lưu thay vì dựng hàng đợi mới từ đầu. */
+function restoreSession(){
+  const h=DB.cardHistory;
+  if(!h || !Array.isArray(h.lastQueueIds) || !h.lastQueueIds.length) return false;
+  const byId=new Map(DB.words.map(w=>[w.id,w]));
+  const queue=h.lastQueueIds.map(id=>byId.get(id)).filter(Boolean);
+  if(!queue.length) return false;
+
+  learnQueue=queue;
+  let idx=-1;
+  if(h.lastWordId) idx=queue.findIndex(w=>w.id===h.lastWordId);
+  if(idx<0 && typeof h.lastIdx==='number') idx=Math.min(Math.max(0,h.lastIdx),queue.length-1);
+  learnIdx=idx<0?0:idx;
+
+  /* Gắn lại bộ từ / chủ đề để tiến độ được ghi đúng chỗ */
+  currentSource = h.lastSource && DB.sources[h.lastSource] ? h.lastSource : null;
+  currentTopic = (!currentSource && h.lastTopic) ? h.lastTopic : null;
+
+  if(learnIdx>0) _resumeToast=`⏪ Tiếp tục buổi học tại vị trí ${learnIdx+1}/${learnQueue.length}`;
+  return true;
+}
+function recordCardView(w){
+  if(!w) return;
+  DB.cardHistory.lastWordId=w.id;
+  DB.cardHistory.lastQueueIds=cachedQueueIds();
+  DB.cardHistory.lastIdx=learnIdx;
+  DB.cardHistory.lastSource=currentSource;
+  DB.cardHistory.lastTopic=currentTopic;
+  touchSourceProgress(w);
+  const log=DB.cardHistory.log;
+  if(!log.length || log[log.length-1].id!==w.id){
+    log.push({id:w.id,word:w.word,meaning:w.meaning,ts:new Date().toISOString()});
+    if(log.length>200) log.shift();
+  }
+  save();
+}
+
+/* ==================================================================
+   SPEECH
+================================================================== */
+function speak(text){
+  if(!('speechSynthesis' in window)){ toast('Thiết bị không hỗ trợ phát âm'); return; }
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='en-US'; u.rate=.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+/* ==================================================================
+   TOAST & SHEET
+================================================================== */
+function toast(msg){
+  let t=document.getElementById('toast');
+  if(!t){ t=document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
+  t.textContent=msg;
+  t.classList.add('show');
+  clearTimeout(t._tm);
+  t._tm=setTimeout(()=>t.classList.remove('show'),1500);
+}
+function openSheet(html){
+  const ov=document.createElement('div');
+  ov.className='sheet-overlay';
+  ov.innerHTML=`<div class="sheet"><div class="sheet-grab"></div>${html}</div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>ov.classList.add('show'));
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeSheet(ov); });
+  return ov;
+}
+function closeSheet(ov){
+  ov.classList.remove('show');
+  setTimeout(()=>ov.remove(),300);
+}
+
+/* ==================================================================
+   ROUTER
+================================================================== */
+let CURRENT_PAGE='learn';
+let feedObserver=null, feedEl=null, feedRendered=0, feedFilter='learning';
+let _lastViewIdx=-1, _feedRestorePending=false;
+
+function goto(page){
+  CURRENT_PAGE=page;
+  render();
+}
+
+function render(){
+  const c=document.getElementById('pageContent');
+  if(feedObserver){ feedObserver.disconnect(); feedObserver=null; }
+  feedEl=null; feedRendered=0; _lastViewIdx=-1; _feedRestorePending=false;
+
+  c.className='';
+  c.scrollTop=0;
+  c.innerHTML='';
+
+  document.querySelectorAll('.nav-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.page===CURRENT_PAGE);
+  });
+
+  const map={
+    learn:renderFeedPage,
+    words:renderWords,
+    add:renderAddWord,
+    games:renderGames,
+    profile:renderProfile
+  };
+  (map[CURRENT_PAGE]||renderFeedPage)(c);
+}
+
+document.querySelectorAll('.nav-btn').forEach(b=>{
+  b.addEventListener('click',()=>goto(b.dataset.page));
+});
+
+/* ==================================================================
+   FEED PAGE (TIKTOK)
+================================================================== */
+const FEED_BATCH=12;
+const GRADIENTS=[
+  'linear-gradient(135deg,#0f172a 0%,#312e81 45%,#831843 100%)',
+  'linear-gradient(135deg,#071e2b 0%,#134e4a 45%,#065f46 100%)',
+  'linear-gradient(135deg,#1a0b2e 0%,#4c1d95 45%,#be185d 100%)',
+  'linear-gradient(135deg,#111827 0%,#7c2d12 45%,#b45309 100%)',
+  'linear-gradient(135deg,#0c0a09 0%,#1e3a8a 45%,#0e7490 100%)',
+  'linear-gradient(135deg,#1c1917 0%,#7f1d1d 45%,#be123c 100%)',
+  'linear-gradient(135deg,#0b1120 0%,#155e75 45%,#4338ca 100%)',
+  'linear-gradient(135deg,#1e1b4b 0%,#5b21b6 45%,#0891b2 100%)'
+];
+function gradFor(id){
+  let h=0;
+  for(let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))>>>0;
+  return GRADIENTS[h%GRADIENTS.length];
+}
+
+function slideHTML(w,idx){
+  const fav = w.favorite ? '⭐' : '☆';
+  return `<section class="slide" data-idx="${idx}" data-id="${esc(w.id)}">
+    <div class="slide-bg" style="background:${gradFor(w.id)}"></div>
+
+    <div class="slide-meta">
+      ${w.topic?`<span class="pill">🏷 ${esc(w.topic)}</span>`:''}
+      <span class="pill">${w.sourceFile?'📂 '+esc(w.sourceFile):''}</span>
+      <span class="pill">${idx+1} / ${learnQueue.length}</span>
+    </div>
+
+    <div class="slide-inner">
+      <div class="card-stack">
+        <div class="word-block">
+          <div class="big-word">${esc(w.word)}</div>
+          <div class="ipa">${esc(w.pronunciation||'')}</div>
+        </div>
+        <div class="detail detail-front">
+          <div class="tap-hint">👆 Chạm để xem nghĩa</div>
+        </div>
+        <div class="detail detail-back">
+          <div class="divider"></div>
+          <div class="meaning">${esc(w.meaning)}</div>
+          ${w.partOfSpeech?`<div class="pos">${esc(w.partOfSpeech)}</div>`:''}
+          ${w.example?`<div class="example">“${esc(w.example)}”</div>`:''}
+          ${w.note?`<div class="note">📝 ${esc(w.note)}</div>`:''}
+        </div>
+      </div>
+    </div>
+
+    <div class="rail">
+      <button class="rail-btn" data-act="fav">${fav}<span>Lưu</span></button>
+      <button class="rail-btn" data-act="speak">🔊<span>Đọc</span></button>
+      <button class="rail-btn" data-act="info">ℹ️<span>Info</span></button>
+    </div>
+
+    <div class="rate-row">
+      <button class="rate-btn bad" data-r="wrong">❌<span>Chưa thuộc</span></button>
+      <button class="rate-btn mid" data-r="hard">😐<span>Khó nhớ</span></button>
+      <button class="rate-btn good" data-r="good">✅<span>Đã thuộc</span></button>
+    </div>
+
+    ${idx===0?'<div class="scroll-cue">⌃</div>':''}
+    <div class="heart-pop">❤️</div>
+  </section>`;
+}
+
+function renderFeedPage(c){
+  if(!learnQueue.length){
+    /* Mở lại app → khôi phục đúng buổi học đang dở; nếu không có thì dựng hàng đợi mới */
+    if(!restoreSession()){
+      let pool=DB.words.filter(w=>w.status!=='learned');
+      if(!pool.length) pool=DB.words.slice();
+      if(pool.length) buildLearnQueue(pool);
+    }
+  }
+
+  c.classList.add('page--feed');
+
+  if(!DB.words.length){
+    c.innerHTML=`<div class="empty-state">
+      <div style="font-size:52px">📭</div>
+      <div>Chưa có từ vựng nào.<br>Hãy thêm từ hoặc import CSV để bắt đầu.</div>
+      <button class="btn" id="emptyAdd">➕ Thêm từ đầu tiên</button>
+    </div>`;
+    c.querySelector('#emptyAdd').onclick=()=>goto('add');
+    return;
+  }
+
+  c.innerHTML=`
+    <div class="feed-head">
+      <div class="feed-tabs">
+        <button class="ftab active" data-f="learning">📖 Đang học</button>
+      </div>
+      <div class="feed-head-right">
+        <button class="icon-btn" id="streakBtn">🔥 ${DB.streak.count||0}</button>
+      </div>
+    </div>
+    <div class="feed" id="feed"></div>
+  `;
+
+  feedEl=c.querySelector('#feed');
+
+  /* Đang khôi phục vị trí → tạm bỏ qua IntersectionObserver: callback đầu tiên chạy
+     trước khi kịp cuộn nên sẽ ghi đè vị trí về thẻ 1. */
+  _feedRestorePending = learnIdx>0 && learnIdx<learnQueue.length;
+
+  feedObserver=new IntersectionObserver(entries=>{
+    for(const en of entries){
+      if(_feedRestorePending) continue;
+      if(!en.isIntersecting || en.intersectionRatio<=0.55) continue;
+      const idx=parseInt(en.target.dataset.idx,10);
+      if(isNaN(idx)) continue;
+      learnIdx=idx;
+      /* Chỉ ghi lịch sử khi thật sự đổi thẻ: tránh map + save lại mỗi khung hình lướt */
+      if(idx!==_lastViewIdx){
+        _lastViewIdx=idx;
+        DB.cardHistory.lastIdx=idx;
+        recordCardView(learnQueue[idx]);
+      }
+      if(idx>=feedRendered-3) renderFeedBatch();
+    }
+  },{root:feedEl,threshold:[0.55]});
+
+  renderFeedBatch();
+
+  // Cuộn đến vị trí đã lưu (resume) nếu có
+  if(_feedRestorePending){
+    while(feedRendered<=learnIdx && feedRendered<learnQueue.length){
+      renderFeedBatch();
+    }
+    scrollFeedTo(learnIdx,()=>{ _feedRestorePending=false; });
+    /* Chốt an toàn: dù cuộn không thành công cũng mở lại theo dõi vị trí sau 800ms */
+    setTimeout(()=>{ _feedRestorePending=false; },800);
+  } else {
+    learnIdx=0;
+    scrollFeedTo(0);
+  }
+
+  // Toast thông báo tiếp tục
+  if(_resumeToast){
+    const msg=_resumeToast;
+    _resumeToast=null;
+    setTimeout(()=>toast(msg),350);
+  }
+
+  c.querySelector('#streakBtn').onclick=()=>{
+    toast(`🔥 Chuỗi ${DB.streak.count||0} ngày · Hôm nay ôn ${counts().dueToday} từ`);
+  };
+
+  /* event delegation */
+  feedEl.addEventListener('click',e=>{
+    const slide=e.target.closest('.slide');
+    if(!slide) return;
+
+    const railBtn=e.target.closest('.rail-btn');
+    if(railBtn){
+      handleRail(slide,railBtn.dataset.act);
+      return;
+    }
+    const rateBtn=e.target.closest('.rate-btn');
+    if(rateBtn){
+      rateWord(slide,rateBtn.dataset.r);
+      return;
+    }
+    if(e.target.closest('.slide-inner')){
+      handleTap(slide);
+    }
+  });
+}
+
+/* Nhảy feed tới thẻ idx chắc chắn (dùng khi khôi phục vị trí).
+   - Chờ layout xong (2 frame) mới cuộn: gán scrollTop ngay sau khi chèn HTML hay bị nuốt trên mobile.
+   - Tạm tắt scroll-snap khi nhảy: scroll-snap-stop:always làm trình duyệt chỉ cho nhảy 1 thẻ mỗi lần. */
+function scrollFeedTo(idx,onDone){
+  if(!feedEl){ if(onDone) onDone(); return; }
+  let tries=0;
+  const place=()=>{
+    if(!feedEl){ if(onDone) onDone(); return; }
+    const h=feedEl.clientHeight;
+    if(!h && tries<20){ tries++; requestAnimationFrame(place); return; }
+    const snap=feedEl.style.scrollSnapType;
+    feedEl.style.scrollSnapType='none';
+    feedEl.scrollTop=h?idx*h:0;
+    requestAnimationFrame(()=>{
+      if(feedEl) feedEl.style.scrollSnapType=snap;
+      if(onDone) onDone();
+    });
+  };
+  requestAnimationFrame(()=>requestAnimationFrame(place));
+}
+
+function renderFeedBatch(){
+  if(!feedEl) return;
+  const end=Math.min(learnQueue.length, feedRendered+FEED_BATCH);
+  if(end<=feedRendered) return;
+  let html='';
+  for(let i=feedRendered;i<end;i++) html+=slideHTML(learnQueue[i],i);
+  feedEl.insertAdjacentHTML('beforeend',html);
+  const slides=feedEl.querySelectorAll('.slide');
+  for(let i=feedRendered;i<end;i++) feedObserver.observe(slides[i]);
+  feedRendered=end;
+}
+
+let lastTapTime=0;
+function handleTap(slide){
+  const now=Date.now();
+  if(now-lastTapTime<320){
+    /* double tap = favorite */
+    lastTapTime=0;
+    slide.classList.remove('flipped');
+    const w=learnQueue[parseInt(slide.dataset.idx,10)];
+    if(w){
+      w.favorite=!w.favorite;
+      save();
+      const btn=slide.querySelector('.rail-btn[data-act="fav"]');
+      if(btn) btn.firstChild.textContent = w.favorite?'⭐':'☆';
+      if(w.favorite){
+        const hp=slide.querySelector('.heart-pop');
+        if(hp){ hp.classList.remove('go'); void hp.offsetWidth; hp.classList.add('go'); }
+      }
+      toast(w.favorite?'⭐ Đã thêm yêu thích':'Đã bỏ yêu thích');
+    }
+    return;
+  }
+  lastTapTime=now;
+  slide.classList.toggle('flipped');
+}
+
+function handleRail(slide,act){
+  const idx=parseInt(slide.dataset.idx,10);
+  const w=learnQueue[idx];
+  if(!w) return;
+  if(act==='fav'){
+    w.favorite=!w.favorite; save();
+    slide.querySelector('.rail-btn[data-act="fav"]').firstChild.textContent = w.favorite?'⭐':'☆';
+    toast(w.favorite?'⭐ Đã thêm yêu thích':'Đã bỏ yêu thích');
+  } else if(act==='speak'){
+    speak(w.word);
+  } else if(act==='info'){
+    showWordSheet(w);
+  }
+}
+
+function rateWord(slide,rating){
+  const idx=parseInt(slide.dataset.idx,10);
+  const w=learnQueue[idx];
+  if(!w) return;
+  if(rating==='good'){ scheduleWord(w,true); toast('✅ Đã thuộc'); }
+  else if(rating==='wrong'){ scheduleWord(w,false); toast('❌ Sẽ ôn lại sớm'); }
+  else if(rating==='hard'){ w.status='learning'; w.level=Math.max(0,w.level-1); scheduleWord(w,true); toast('😐 Đã ghi nhận'); }
+  if(navigator.vibrate) navigator.vibrate(12);
+  setTimeout(()=>feedGoTo(idx+1),160);
+}
+
+function feedGoTo(i){
+  if(i>=learnQueue.length){ toast('🎉 Đã hết danh sách!'); return; }
+  if(i>=feedRendered-2) renderFeedBatch();
+  if(!feedEl) return;
+  /* Cuộn theo đúng cao độ thẻ, không qua scrollIntoView: tránh xung đột với scroll-snap */
+  feedEl.scrollTo({top:i*(feedEl.clientHeight||1),behavior:'smooth'});
+}
+
+function showWordSheet(w){
+  const ov=openSheet(`
+    <h3>${esc(w.word)}</h3>
+    <div class="s-ipa">${esc(w.pronunciation||'')}</div>
+    <div class="s-row"><span>Nghĩa</span><span>${esc(w.meaning)}</span></div>
+    ${w.partOfSpeech?`<div class="s-row"><span>Loại từ</span><span>${esc(w.partOfSpeech)}</span></div>`:''}
+    ${w.example?`<div class="s-row"><span>Ví dụ</span><span style="font-style:italic;font-weight:400">${esc(w.example)}</span></div>`:''}
+    ${w.note?`<div class="s-row"><span>Ghi chú</span><span>${esc(w.note)}</span></div>`:''}
+    <div class="s-row"><span>Bộ từ</span><span>${esc(w.sourceFile||'—')}</span></div>
+    ${w.topic?`<div class="s-row"><span>Chủ đề</span><span>${esc(w.topic)}</span></div>`:''}
+    <div class="s-row"><span>Trạng thái</span><span>${w.status}</span></div>
+    <div class="s-row"><span>Độ chính xác</span><span>${w.confidence||0}% (${w.correctCount}/${w.reviewCount})</span></div>
+    <div class="s-row"><span>Cấp độ SRS</span><span>${w.level}</span></div>
+    <div class="s-row"><span>Ôn tiếp theo</span><span>${w.nextReview?new Date(w.nextReview).toLocaleString('vi-VN'):'—'}</span></div>
+    <div style="display:flex;gap:8px;margin-top:18px;">
+      <button class="btn ghost" style="flex:1" id="sSpeak">🔊 Phát âm</button>
+      <button class="btn ${w.favorite?'danger':''}" style="flex:1" id="sFav">${w.favorite?'⭐ Bỏ lưu':'☆ Yêu thích'}</button>
+      <button class="btn" style="flex:1" id="sClose">Đóng</button>
+    </div>
+  `);
+  ov.querySelector('#sSpeak').onclick=()=>speak(w.word);
+  ov.querySelector('#sFav').onclick=()=>{ w.favorite=!w.favorite; save(); closeSheet(ov); render(); };
+  ov.querySelector('#sClose').onclick=()=>closeSheet(ov);
+}
+
+/* ==================================================================
+   WORDS (DISCOVER)
+================================================================== */
+let wordSearch='', wordStatus='all', wordSource='all', wordLimit=30;
+
+function wordRowHTML(w){
+  return `<div class="word-row" data-id="${esc(w.id)}">
+    <div class="wr-main">
+      <div class="wr-word">${esc(w.word)}${w.favorite?' <span class="star">⭐</span>':''}</div>
+      ${w.pronunciation?`<div class="wr-ipa">${esc(w.pronunciation)}</div>`:''}
+      <div class="wr-meaning">${esc(w.meaning)}</div>
+    </div>
+    <div class="wr-right">
+      <span class="dot dot-${w.status}"></span>
+      <span class="wr-acc">${w.confidence||0}%</span>
+    </div>
+  </div>`;
+}
+
+function filteredWords(){
+  let list=DB.words.slice();
+  if(wordStatus!=='all') list=list.filter(w=>w.status===wordStatus);
+  if(wordSource!=='all') list=list.filter(w=>w.sourceFile===wordSource);
+  if(wordSearch){
+    const q=wordSearch.toLowerCase();
+    list=list.filter(w=>[w.word,w.meaning,w.pronunciation,w.partOfSpeech].join(' ').toLowerCase().includes(q));
+  }
+  return list;
+}
+
+function renderWords(c){
+  const list=filteredWords();
+  const shown=list.slice(0,wordLimit);
+
+  c.innerHTML=`
+    <div class="page-head">
+      <div class="page-title">🔍 Khám phá</div>
+      <div class="search-wrap">
+        <input id="wSearch" class="search-input" placeholder="Tìm từ, nghĩa, phiên âm..." value="${esc(wordSearch)}">
+      </div>
+      <div class="chips" id="statusChips">
+        ${[['all','Tất cả'],['new','Chưa học'],['learning','Đang học'],['learned','Đã thuộc'],['review','Cần ôn']]
+          .map(([v,l])=>`<button class="chip ${wordStatus===v?'active':''}" data-s="${v}">${l}</button>`).join('')}
+        ${Object.keys(DB.sources).length?`<button class="chip ${wordSource!=='all'?'active':''}" data-src-toggle>📂 ${wordSource==='all'?'Bộ từ':esc(wordSource)}</button>`:''}
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-top:8px;"><span id="wCount">${list.length}</span> từ</div>
+    </div>
+    <div class="pad" style="padding-top:12px;">
+      <div id="wordList">${shown.map(wordRowHTML).join('') ||
+        '<div style="text-align:center;color:var(--muted);padding:40px 0;">Không tìm thấy từ nào.</div>'}</div>
+      <div id="moreWrap">${list.length>shown.length
+        ? `<button class="btn ghost wide" id="loadMore">Xem thêm (${list.length-shown.length})</button>` : ''}</div>
+      ${list.length?`<button class="btn wide" style="margin-top:10px;" id="studyFiltered">▶ Học danh sách này (${list.length})</button>`:''}
+    </div>
+  `;
+
+  const search=c.querySelector('#wSearch');
+  search.addEventListener('input',e=>{
+    wordSearch=e.target.value;
+    wordLimit=30;
+    refreshWordList(c);
+  });
+
+  c.querySelectorAll('#statusChips .chip[data-s]').forEach(ch=>{
+    ch.onclick=()=>{
+      wordStatus=ch.dataset.s;
+      wordLimit=30;
+      renderWords(c);
+    };
+  });
+
+  const srcToggle=c.querySelector('[data-src-toggle]');
+  if(srcToggle){
+    srcToggle.onclick=()=>{
+      const names=['all',...Object.keys(DB.sources)];
+      const cur=names.indexOf(wordSource);
+      wordSource=names[(cur+1)%names.length];
+      wordLimit=30;
+      renderWords(c);
+    };
+  }
+
+  bindWordList(c);
+}
+
+function refreshWordList(c){
+  const list=filteredWords();
+  const shown=list.slice(0,wordLimit);
+  c.querySelector('#wordList').innerHTML = shown.map(wordRowHTML).join('') ||
+    '<div style="text-align:center;color:var(--muted);padding:40px 0;">Không tìm thấy từ nào.</div>';
+  c.querySelector('#wCount').textContent=list.length;
+  const mw=c.querySelector('#moreWrap');
+  if(mw){
+    mw.innerHTML = list.length>shown.length
+      ? `<button class="btn ghost wide" id="loadMore">Xem thêm (${list.length-shown.length})</button>` : '';
+  }
+  bindWordList(c);
+}
+
+function bindWordList(c){
+  const more=c.querySelector('#loadMore');
+  if(more) more.onclick=()=>{ wordLimit+=30; refreshWordList(c); };
+
+  c.querySelectorAll('.word-row').forEach(row=>{
+    row.onclick=()=>{
+      const w=DB.words.find(x=>x.id===row.dataset.id);
+      if(w) showWordSheet(w);
+    };
+  });
+
+  const sf=c.querySelector('#studyFiltered');
+  if(sf) sf.onclick=()=>{
+    const list=filteredWords();
+    if(!list.length){ toast('Không có từ nào'); return; }
+    buildLearnQueue(list,{freshStart:true});
+    feedFilter='all';
+    goto('learn');
+  };
+}
+
+/* ==================================================================
+   ADD WORD
+================================================================== */
+const MANUAL_SOURCE='Thêm thủ công';
+function renderAddWord(c){
+  const manual=DB.words.filter(w=>w.sourceFile===MANUAL_SOURCE);
+  c.innerHTML=`
+    <div class="page-head">
+      <div class="page-title">➕ Thêm từ mới</div>
+      <div class="page-sub">Từ sẽ được lưu vào bộ "Thêm thủ công"</div>
+    </div>
+    <div class="pad">
+      <div class="card">
+        <div class="field"><label>Từ vựng *</label><input id="awWord" placeholder="e.g. resilient" autocomplete="off"></div>
+        <div class="field"><label>Phiên âm (IPA)</label><input id="awIpa" placeholder="/rɪˈzɪliənt/" autocomplete="off"></div>
+        <div class="field"><label>Nghĩa *</label><input id="awMeaning" placeholder="kiên cường" autocomplete="off"></div>
+        <div class="field"><label>Loại từ</label><input id="awPos" placeholder="adjective" autocomplete="off"></div>
+        <div class="field"><label>Câu ví dụ</label><input id="awExample" placeholder="She is a resilient person." autocomplete="off"></div>
+        <div class="field" style="margin-bottom:0"><label>Ghi chú</label><input id="awNote" placeholder="tuỳ chọn" autocomplete="off"></div>
+      </div>
+      <button class="btn wide" id="awSubmit">✅ Thêm từ</button>
+      <div id="awResult" style="margin-top:10px;font-size:14px;text-align:center;"></div>
+
+      <div class="section-title">Từ đã thêm (${manual.length})</div>
+      ${manual.length?`<button class="btn ghost wide" id="studyManual" style="margin-bottom:10px;">▶ Học danh sách này</button>`:''}
+      ${manual.length? manual.map(w=>`
+        <div class="word-row" style="margin-bottom:8px;">
+          <div class="wr-main">
+            <div class="wr-word">${esc(w.word)}</div>
+            <div class="wr-meaning">${esc(w.meaning)}</div>
+          </div>
+          <button class="btn ghost sm" data-delm="${esc(w.id)}">Xóa</button>
+        </div>`).join('')
+        : '<div style="color:var(--muted);font-size:13.5px;text-align:center;padding:16px 0;">Chưa có từ nào.</div>'}
+      <div style="height:20px"></div>
+    </div>
+  `;
+
+  c.querySelector('#awSubmit').onclick=()=>{
+    const word=c.querySelector('#awWord').value.trim();
+    const meaning=c.querySelector('#awMeaning').value.trim();
+    const resEl=c.querySelector('#awResult');
+    if(!word||!meaning){
+      resEl.innerHTML='<span style="color:var(--danger)">⚠ Cần nhập Từ vựng và Nghĩa.</span>';
+      return;
+    }
+    const obj=newWordObj({
+      id:makeId(word,MANUAL_SOURCE),
+      word,
+      pronunciation:c.querySelector('#awIpa').value.trim(),
+      meaning,
+      partOfSpeech:c.querySelector('#awPos').value.trim(),
+      example:c.querySelector('#awExample').value.trim(),
+      note:c.querySelector('#awNote').value.trim(),
+      sourceFile:MANUAL_SOURCE
+    });
+    const res=mergeWords([obj]);
+    DB.sources[MANUAL_SOURCE]={count:DB.words.filter(w=>w.sourceFile===MANUAL_SOURCE).length,enabled:true};
+    save();
+    if(res.added) toast('✅ Đã thêm từ mới!');
+    else toast('🔄 Đã cập nhật từ có sẵn');
+    renderAddWord(c);
+  };
+
+  const sm=c.querySelector('#studyManual');
+  if(sm) sm.onclick=()=>{ buildLearnQueue(manual,{source:MANUAL_SOURCE}); goto('learn'); };
+
+  c.querySelectorAll('[data-delm]').forEach(b=>{
+    b.onclick=()=>{
+      DB.words=DB.words.filter(w=>w.id!==b.dataset.delm);
+      DB.sources[MANUAL_SOURCE]={count:DB.words.filter(w=>w.sourceFile===MANUAL_SOURCE).length,enabled:true};
+      save();
+      renderAddWord(c);
+      toast('🗑 Đã xóa từ');
+    };
+  });
+}
+
+/* ==================================================================
+   GAMES
+================================================================== */
+let gameFavOnly=false, gameState=null;
+
+function renderGames(c){
+  const favCount=DB.words.filter(w=>w.favorite).length;
+  c.innerHTML=`
+    <div class="page-head">
+      <div class="page-title">🎮 Games</div>
+      <label class="switch-row">
+        <input type="checkbox" id="favOnlyChk" ${gameFavOnly?'checked':''} ${favCount<4?'disabled':''}>
+        <span>Chỉ dùng từ yêu thích ⭐ (${favCount} từ)${favCount<4?' — cần tối thiểu 4 từ':''}</span>
+      </label>
+    </div>
+    <div class="pad">
+      <div class="game-cards">
+        <button class="game-card" data-g="mc-vi"><span class="gc-emoji">🇻🇳</span><div><b>EN → VI</b><small>Chọn nghĩa đúng</small></div></button>
+        <button class="game-card" data-g="mc-en"><span class="gc-emoji">🇬🇧</span><div><b>VI → EN</b><small>Chọn từ tiếng Anh đúng</small></div></button>
+        <button class="game-card" data-g="typing"><span class="gc-emoji">⌨️</span><div><b>Typing Challenge</b><small>Gõ từ tiếng Anh theo nghĩa</small></div></button>
+      </div>
+      <div id="gameArea"></div>
+      <div style="height:20px"></div>
+    </div>`;
+
+  c.querySelector('#favOnlyChk').onchange=e=>{ gameFavOnly=e.target.checked; };
+  c.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>startGame(b.dataset.g));
+}
+
+function pickChoices(correctWord,key,n=4){
+  const pool=DB.words.filter(w=>w.id!==correctWord.id && w[key]);
+  const shuffled=pool.sort(()=>Math.random()-0.5).slice(0,n-1);
+  return [correctWord,...shuffled].sort(()=>Math.random()-0.5);
+}
+
+function startGame(type){
+  let base=DB.words.filter(w=>w.meaning);
+  if(gameFavOnly) base=base.filter(w=>w.favorite);
+  if(base.length<4){
+    toast(gameFavOnly?'Cần ít nhất 4 từ yêu thích':'Cần ít nhất 4 từ để chơi');
+    return;
+  }
+  gameState={type,score:0,correct:0,wrong:0,qIndex:0,
+    pool:base.slice().sort(()=>Math.random()-0.5).slice(0,10)};
+  renderGameQuestion();
+}
+
+function renderGameQuestion(){
+  const area=document.getElementById('gameArea');
+  if(!area) return;
+  if(!gameState || gameState.qIndex>=gameState.pool.length){
+    const acc=gameState&&(gameState.correct+gameState.wrong)
+      ? Math.round(100*gameState.correct/(gameState.correct+gameState.wrong)) : 0;
+    area.innerHTML=`<div class="card" style="text-align:center;">
+      <div style="font-size:40px;margin-bottom:8px;">🎉</div>
+      <div style="font-size:19px;font-weight:800;margin-bottom:10px;">Hoàn thành!</div>
+      <div style="color:var(--muted);font-size:14px;line-height:1.8;">
+        Điểm: <b style="color:var(--text)">${gameState?gameState.score:0}</b><br>
+        Đúng: ${gameState?gameState.correct:0} · Sai: ${gameState?gameState.wrong:0}<br>
+        Chính xác: ${acc}%
+      </div>
+      <button class="btn wide" style="margin-top:16px;" id="playAgain">🔁 Chơi lại</button>
+    </div>`;
+    if(gameState) area.querySelector('#playAgain').onclick=()=>startGame(gameState.type);
+    return;
+  }
+
+  const w=gameState.pool[gameState.qIndex];
+  const favTag=gameFavOnly?'<span class="chip active" style="margin-left:6px;">⭐</span>':'';
+
+  if(gameState.type==='typing'){
+    area.innerHTML=`<div class="card">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Câu ${gameState.qIndex+1}/${gameState.pool.length}${favTag}</div>
+      <div style="font-size:19px;margin-bottom:14px;">Nghĩa: <b>${esc(w.meaning)}</b></div>
+      <input id="typeInput" class="search-input" placeholder="Gõ từ tiếng Anh..." autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn wide" style="margin-top:10px;" id="submitType">Kiểm tra</button>
+      <div id="typeResult" style="margin-top:10px;font-size:14px;"></div>
+    </div>`;
+    const input=area.querySelector('#typeInput');
+    setTimeout(()=>input.focus(),80);
+    const submit=()=>{
+      const val=input.value.trim().toLowerCase().replace(/\s+/g,' ');
+      if(!val) return;
+      const correct=val===w.word.toLowerCase();
+      area.querySelector('#typeResult').innerHTML = correct
+        ? '<span style="color:var(--success)">✅ Chính xác!</span>'
+        : `<span style="color:var(--danger)">❌ Sai. Đáp án: <b>${esc(w.word)}</b></span>`;
+      gameState.score += correct?10:0;
+      if(correct) gameState.correct++; else gameState.wrong++;
+      scheduleWord(w,correct);
+      gameState.qIndex++;
+      input.disabled=true;
+      area.querySelector('#submitType').disabled=true;
+      setTimeout(renderGameQuestion,950);
+    };
+    area.querySelector('#submitType').onclick=submit;
+    input.addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); });
+  } else {
+    const showEnglish=gameState.type==='mc-vi';
+    const choices=pickChoices(w, showEnglish?'meaning':'word');
+    area.innerHTML=`<div class="card">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Câu ${gameState.qIndex+1}/${gameState.pool.length}${favTag}</div>
+      <div style="font-size:19px;margin-bottom:16px;">${showEnglish
+        ? `"<b>${esc(w.word)}</b>" nghĩa là gì?`
+        : `"${esc(w.meaning)}" là từ nào?`}</div>
+      ${choices.map(ch=>`<button class="game-opt" data-id="${esc(ch.id)}">${esc(showEnglish?ch.meaning:ch.word)}</button>`).join('')}
+    </div>`;
+    area.querySelectorAll('.game-opt').forEach(btn=>{
+      btn.onclick=()=>{
+        const correct=btn.dataset.id===w.id;
+        area.querySelectorAll('.game-opt').forEach(b=>{
+          if(b.dataset.id===w.id) b.classList.add('correct');
+          else if(b===btn) b.classList.add('wrong');
+          b.onclick=null;
+        });
+        gameState.score += correct?10:0;
+        if(correct) gameState.correct++; else gameState.wrong++;
+        scheduleWord(w,correct);
+        gameState.qIndex++;
+        setTimeout(renderGameQuestion,900);
+      };
+    });
+  }
+}
+
+/* ==================================================================
+   PROFILE
+================================================================== */
+function renderProfile(c){
+  const k=counts();
+  const s=DB.statistics;
+  const acc=s.totalReviews?Math.round(100*s.totalCorrect/s.totalReviews):0;
+  const favs=DB.words.filter(w=>w.favorite);
+  const srcNames=Object.keys(DB.sources);
+  const topicPools={};
+  DB.words.forEach(w=>{ if(!w.topic) return; (topicPools[w.topic]=topicPools[w.topic]||[]).push(w); });
+  const topicNames=Object.keys(topicPools).sort((a,b)=>topicPools[b].length-topicPools[a].length);
+
+  c.innerHTML=`
+    <div class="profile-head">
+      <div class="avatar">📘</div>
+      <div class="pname">Vocab Learner</div>
+      <div class="pstreak">🔥 ${DB.streak.count||0} ngày liên tiếp · Mục tiêu ${DB.settings.dailyGoal||20} từ/ngày</div>
+      <div class="pstats">
+        <div><b>${k.total}</b><span>Từ</span></div>
+        <div><b>${k.learned}</b><span>Đã thuộc</span></div>
+        <div><b>${acc}%</b><span>Chính xác</span></div>
+        <div><b>${s.totalReviews}</b><span>Lượt ôn</span></div>
+      </div>
+      <div class="pactions">
+        <button class="btn" id="pReview">🔄 Ôn tập (${k.dueToday})</button>
+        <button class="btn ghost" id="pFav">⭐ Yêu thích (${favs.length})</button>
+      </div>
+    </div>
+
+    <div class="pad">
+      <div class="section-title" style="margin-top:6px;">Thống kê chi tiết</div>
+      <div class="stat-grid">
+        <div class="stat"><b>${k.new}</b><span>Chưa học</span></div>
+        <div class="stat"><b>${k.learning}</b><span>Đang học</span></div>
+        <div class="stat"><b>${k.review}</b><span>Cần ôn lại</span></div>
+        <div class="stat"><b>${s.totalCorrect}</b><span>Lượt đúng</span></div>
+        <div class="stat"><b>${s.totalWrong}</b><span>Lượt sai</span></div>
+        <div class="stat"><b>${k.dueToday}</b><span>Đến hạn hôm nay</span></div>
+      </div>
+
+      <div class="section-title">Bộ từ (${srcNames.length})</div>
+      <div class="card">
+        ${srcNames.length? srcNames.map(name=>{
+          const {viewed,total,pct,lastIdx}=getSourceProgress(name);
+          const hasResume = lastIdx>0 && lastIdx<total;
+          return `<div class="src-item">
+            <div style="flex:1;min-width:130px;">
+              <div class="src-name">${esc(name)}</div>
+              <div class="src-meta">${total} từ · đã xem ${viewed} (${pct}%)${hasResume?` · 📍 ${lastIdx+1}/${total}`:''}</div>
+            </div>
+            <div class="src-actions">
+              ${hasResume
+                ? `<button class="btn sm" data-resume="${esc(name)}">⏪ Tiếp tục</button>
+                   <button class="btn ghost sm" data-study="${esc(name)}">↻ Đầu</button>`
+                : `<button class="btn ghost sm" data-study="${esc(name)}">▶ Học</button>`}
+              <button class="btn ghost sm" data-del="${esc(name)}">Xóa</button>
+            </div>
+          </div>`;
+        }).join('') : '<div style="color:var(--muted);font-size:13.5px;text-align:center;padding:12px 0;">Chưa có bộ từ nào.</div>'}
+      </div>
+
+      <div class="section-title">Chủ đề (${topicNames.length})</div>
+      <div class="card">
+        ${topicNames.length? topicNames.map(name=>{
+          const {viewed,total,pct,lastIdx}=getTopicProgress(name);
+          const hasResume = lastIdx>0 && lastIdx<total;
+          return `<div class="src-item">
+            <div style="flex:1;min-width:130px;">
+              <div class="src-name">🏷 ${esc(name)}</div>
+              <div class="src-meta">${total} từ · đã xem ${viewed} (${pct}%)${hasResume?` · 📍 ${lastIdx+1}/${total}`:''}</div>
+            </div>
+            <div class="src-actions">
+              ${hasResume
+                ? `<button class="btn sm" data-tresume="${esc(name)}">⏪ Tiếp tục</button>
+                   <button class="btn ghost sm" data-tstudy="${esc(name)}">↻ Đầu</button>`
+                : `<button class="btn ghost sm" data-tstudy="${esc(name)}">▶ Lướt</button>`}
+            </div>
+          </div>`;
+        }).join('') : '<div style="color:var(--muted);font-size:13.5px;text-align:center;padding:12px 0;">Chưa có chủ đề nào. Import CSV có cột “Chủ đề” để tạo.</div>'}
+      </div>
+
+
+      <div class="section-title">📚 Từ điển Anh–Việt cục bộ</div>
+      <div class="card">
+        <div class="dict-status">
+          <div class="dict-status-main">
+            <span class="dict-dot" id="dictDot"></span>
+            <div style="min-width:0;">
+              <div class="dict-name" id="dictStatusText">Dictionary: Not connected</div>
+              <div class="dict-meta" id="dictMeta">Chọn file SQLite .db/.sqlite để enrich CSV.</div>
+            </div>
+          </div>
+          <div class="dict-actions">
+            <label class="btn sm" style="cursor:pointer;">📂 Chọn DB
+              <input type="file" id="dictFile" accept=".db,.sqlite,.sqlite3,.db3,application/octet-stream" style="display:none;">
+            </label>
+            <button class="btn ghost sm hidden" id="dictClear">Xóa</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;">
+          Khi import CSV, app sẽ tra từ trong SQLite và ưu tiên bổ sung
+          <b style="color:var(--text);">IPA → nghĩa → POS → ví dụ</b>.
+          Mặc định không ghi đè dữ liệu CSV đã có.
+        </div>
+      </div>
+
+      <div class="section-title">Import CSV</div>
+      <div class="card">
+        <div class="dropzone" id="dz">
+          📂 Kéo thả file CSV vào đây<br>
+          <label style="color:var(--primary);cursor:pointer;font-weight:700;">hoặc chọn file
+            <input type="file" id="fileInput" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel,text/plain" multiple style="display:none;">
+          </label>
+        </div>
+      </div>
+
+      ${favs.length?`
+      <div class="section-title">⭐ Từ yêu thích (${favs.length})</div>
+      <div style="margin-bottom:10px;display:flex;gap:8px;">
+        <button class="btn ghost" style="flex:1" id="studyFav">▶ Học</button>
+        <button class="btn ghost" style="flex:1" id="gameFav">🎮 Chơi game</button>
+      </div>
+      ${favs.slice(0,10).map(w=>`
+        <div class="word-row" data-favid="${esc(w.id)}" style="margin-bottom:8px;">
+          <div class="wr-main">
+            <div class="wr-word">${esc(w.word)}</div>
+            <div class="wr-meaning">${esc(w.meaning)}</div>
+          </div>
+          <span style="font-size:16px">⭐</span>
+        </div>`).join('')}
+      ${favs.length>10?`<div style="font-size:12.5px;color:var(--muted);text-align:center;">+${favs.length-10} từ khác</div>`:''}
+      `:''}
+
+      <div class="section-title">Cài đặt</div>
+      <div class="card">
+        <div class="switch-row" style="margin-top:0;justify-content:space-between;">
+          <span style="color:var(--text);font-weight:600;">🌗 Chế độ tối</span>
+          <input type="checkbox" id="themeChk" ${DB.settings.theme==='dark'?'checked':''}>
+        </div>
+        <div class="switch-row" style="justify-content:space-between;">
+          <span style="color:var(--text);font-weight:600;">🎯 Mục tiêu mỗi ngày</span>
+          <select id="goalSel" style="width:auto;padding:7px 10px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);">
+            ${[10,20,30,50].map(n=>`<option value="${n}" ${DB.settings.dailyGoal===n?'selected':''}>${n} từ</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="section-title">Dữ liệu</div>
+      <div class="card">
+        <button class="btn ghost wide" id="exportBtn" style="margin-bottom:8px;">⬇ Xuất tiến độ (JSON)</button>
+        <label class="btn ghost wide" style="margin-bottom:8px;display:flex;">⬆ Nhập tiến độ
+          <input type="file" id="importFile" accept=".json" style="display:none;">
+        </label>
+        <button class="btn danger wide" id="resetBtn">🗑 Xóa toàn bộ dữ liệu</button>
+      </div>
+
+      <div style="text-align:center;color:var(--muted);font-size:11.5px;padding:14px 0 30px;">
+        Vocab Flashcard · v1.1
+      </div>
+    </div>
+  `;
+
+  /* actions */
+  c.querySelector('#pReview').onclick=()=>{
+    const due=dueWords();
+    if(!due.length){ toast('🎉 Không có từ nào cần ôn!'); return; }
+    buildLearnQueue(due.sort(()=>Math.random()-0.5),{freshStart:true});
+    feedFilter='due';
+    goto('learn');
+  };
+  c.querySelector('#pFav').onclick=()=>{
+    if(!favs.length){ toast('Chưa có từ yêu thích'); return; }
+    buildLearnQueue(favs,{freshStart:true});
+    feedFilter='fav';
+    goto('learn');
+  };
+
+  c.querySelectorAll('[data-resume]').forEach(b=>{
+    b.onclick=()=>{
+      const name=b.dataset.resume;
+      const pool=getSourcePool(name);
+      if(!pool.length){ toast('Bộ từ này trống'); return; }
+      buildLearnQueue(pool,{source:name});
+      goto('learn');
+    };
+  });
+  c.querySelectorAll('[data-study]').forEach(b=>{
+    b.onclick=()=>{
+      const name=b.dataset.study;
+      const pool=getSourcePool(name);
+      if(!pool.length){ toast('Bộ từ này trống'); return; }
+      buildLearnQueue(pool,{source:name, freshStart:true});
+      goto('learn');
+    };
+  });
+  c.querySelectorAll('[data-tresume]').forEach(b=>{
+    b.onclick=()=>{
+      const name=b.dataset.tresume;
+      const pool=getTopicPool(name);
+      if(!pool.length){ toast('Chủ đề này trống'); return; }
+      buildLearnQueue(pool,{topic:name});
+      goto('learn');
+    };
+  });
+  c.querySelectorAll('[data-tstudy]').forEach(b=>{
+    b.onclick=()=>{
+      const name=b.dataset.tstudy;
+      const pool=getTopicPool(name);
+      if(!pool.length){ toast('Chủ đề này trống'); return; }
+      buildLearnQueue(pool,{topic:name, freshStart:true});
+      goto('learn');
+    };
+  });
+  c.querySelectorAll('[data-del]').forEach(b=>{
+    b.onclick=()=>{
+      const name=b.dataset.del;
+      if(confirm('Xóa bộ từ "'+name+'"?')){
+        DB.words=DB.words.filter(w=>w.sourceFile!==name);
+        delete DB.sources[name];
+        delete DB.sourceProgress[name];
+        save(); renderProfile(c);
+        toast('🗑 Đã xóa bộ từ');
+      }
+    };
+  });
+
+
+  const dictFile=c.querySelector('#dictFile');
+  const dictClear=c.querySelector('#dictClear');
+  updateDictionaryStatus(c);
+
+  if(dictFile) dictFile.onchange=async e=>{
+    const f=e.target.files[0];
+    if(!f) return;
+    await connectDictionaryFile(f);
+    updateDictionaryStatus(c);
+  };
+  if(dictClear) dictClear.onclick=async ()=>{
+    await clearDictionary();
+    updateDictionaryStatus(c);
+    toast('🗑 Đã ngắt kết nối dictionary');
+  };
+
+  const dz=c.querySelector('#dz');
+  ['dragover','dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>e.preventDefault()));
+  dz.addEventListener('dragover',()=>dz.classList.add('drag'));
+  dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+  dz.addEventListener('drop',e=>{ dz.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
+  c.querySelector('#fileInput').onchange=e=>handleFiles(e.target.files);
+
+  const studyFav=c.querySelector('#studyFav');
+  if(studyFav) studyFav.onclick=()=>{
+    buildLearnQueue(favs,{freshStart:true});
+    feedFilter='fav';
+    goto('learn');
+  };
+  const gameFav=c.querySelector('#gameFav');
+  if(gameFav) gameFav.onclick=()=>{ gameFavOnly=true; goto('games'); };
+
+  c.querySelectorAll('[data-favid]').forEach(r=>{
+    r.onclick=()=>{
+      const w=DB.words.find(x=>x.id===r.dataset.favid);
+      if(w) showWordSheet(w);
+    };
+  });
+
+  c.querySelector('#themeChk').onchange=e=>{
+    DB.settings.theme = e.target.checked?'dark':'light';
+    save(); applyTheme();
+  };
+  c.querySelector('#goalSel').onchange=e=>{ DB.settings.dailyGoal=parseInt(e.target.value,10); save(); };
+
+  c.querySelector('#exportBtn').onclick=()=>{
+    const blob=new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download='vocab-progress.json'; a.click();
+    URL.revokeObjectURL(url);
+    toast('⬇ Đã xuất dữ liệu');
+  };
+  c.querySelector('#importFile').onchange=e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const data=JSON.parse(ev.target.result);
+        DB=data; save(); render();
+        toast('✅ Đã khôi phục dữ liệu');
+      }catch(err){ toast('❌ File JSON không hợp lệ'); }
+    };
+    reader.readAsText(f);
+  };
+  c.querySelector('#resetBtn').onclick=()=>{
+    if(confirm('Bạn chắc chắn muốn xóa toàn bộ dữ liệu?')){
+      localStorage.removeItem(STORE_KEY);
+      DB=loadStore();
+      if(!DB.cardHistory) DB.cardHistory={log:[],lastWordId:null,lastQueueIds:null,lastIdx:0,lastSource:null,lastTopic:null};
+      if(!DB.cardHistory.log) DB.cardHistory.log=[];
+      if(!DB.sourceProgress) DB.sourceProgress={};
+      loadDemoIfEmpty();
+      learnQueue=[];
+      applyTheme(); render();
+      toast('🗑 Đã xóa toàn bộ dữ liệu');
+    }
+  };
+}
+
+
+/* ==================================================================
+   LOCAL SQLITE DICTIONARY
+================================================================== */
+let dictionaryDB=null;
+let dictionarySQL=null;
+let dictionaryInfo={name:'',size:0,loadedAt:null};
+const DICT_IDB_NAME='vocab-local-dictionary';
+const DICT_IDB_STORE='files';
+const DICT_IDB_KEY='dictionary_en_vi';
+
+function openDictionaryIDB(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(DICT_IDB_NAME,1);
+    req.onupgradeneeded=()=>req.result.createObjectStore(DICT_IDB_STORE);
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function saveDictionaryBytes(bytes,info){
+  const db=await openDictionaryIDB();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(DICT_IDB_STORE,'readwrite');
+    tx.objectStore(DICT_IDB_STORE).put({bytes,info},DICT_IDB_KEY);
+    tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+  });
+  db.close();
+}
+async function loadDictionaryBytes(){
+  const db=await openDictionaryIDB();
+  const result=await new Promise((resolve,reject)=>{
+    const tx=db.transaction(DICT_IDB_STORE,'readonly');
+    const req=tx.objectStore(DICT_IDB_STORE).get(DICT_IDB_KEY);
+    req.onsuccess=()=>resolve(req.result||null);
+    req.onerror=()=>reject(req.error);
+  });
+  db.close();
+  return result;
+}
+async function clearDictionary(){
+  dictionaryDB=null;
+  dictionaryInfo={name:'',size:0,loadedAt:null};
+  try{
+    const db=await openDictionaryIDB();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(DICT_IDB_STORE,'readwrite');
+      tx.objectStore(DICT_IDB_STORE).delete(DICT_IDB_KEY);
+      tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error);
+    });
+    db.close();
+  }catch(e){}
+}
+function formatBytes(n){
+  if(!n) return '0 B';
+  const units=['B','KB','MB','GB'];
+  let i=0,x=n;
+  while(x>=1024 && i<units.length-1){x/=1024;i++;}
+  return `${x.toFixed(i?1:0)} ${units[i]}`;
+}
+function normalizeDictWord(s){
+  return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+function uniqueClean(arr){
+  return [...new Set(arr.map(x=>String(x||'').trim()).filter(Boolean))];
+}
+async function createDictionaryFromBytes(bytes,info){
+  if(!window.initSqlJs) throw new Error('sql.js chưa tải. Hãy mở trang khi có Internet lần đầu.');
+  if(!dictionarySQL){
+    dictionarySQL=await initSqlJs({
+      locateFile:file=>'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/'+file
+    });
+  }
+  dictionaryDB=new dictionarySQL.Database(new Uint8Array(bytes));
+  dictionaryInfo=Object.assign({},info,{size:bytes.byteLength,loadedAt:new Date().toISOString()});
+}
+async function connectDictionaryFile(file){
+  if(!file) return;
+  try{
+    toast('⏳ Đang nạp dictionary '+file.name+'…');
+    const bytes=await file.arrayBuffer();
+    await createDictionaryFromBytes(bytes,{name:file.name,size:file.size});
+    await saveDictionaryBytes(bytes,dictionaryInfo);
+    toast(`✅ Dictionary đã kết nối · ${formatBytes(file.size)}`);
+  }catch(err){
+    dictionaryDB=null;
+    console.error(err);
+    toast('❌ Không thể mở SQLite: '+(err.message||err));
+  }
+}
+async function initDictionaryFromCache(){
+  try{
+    const cached=await loadDictionaryBytes();
+    if(!cached || !cached.bytes) return;
+    await createDictionaryFromBytes(cached.bytes,cached.info||{name:'Dictionary'});
+  }catch(err){
+    console.warn('Dictionary cache unavailable:',err);
+  }
+}
+function updateDictionaryStatus(root){
+  const dot=root&&root.querySelector('#dictDot');
+  const status=root&&root.querySelector('#dictStatusText');
+  const meta=root&&root.querySelector('#dictMeta');
+  const clear=root&&root.querySelector('#dictClear');
+  if(!dot||!status||!meta) return;
+  dot.className='dict-dot '+(dictionaryDB?'ok':'');
+  status.textContent=dictionaryDB?'Dictionary: Connected':'Dictionary: Not connected';
+  meta.textContent=dictionaryDB
+    ? `${dictionaryInfo.name||'SQLite dictionary'} · ${formatBytes(dictionaryInfo.size)} · lưu cục bộ`
+    : 'Chọn file SQLite .db/.sqlite để enrich CSV.';
+  if(clear) clear.classList.toggle('hidden',!dictionaryDB);
+}
+function lookupDictionary(word){
+  if(!dictionaryDB) return null;
+  const q=normalizeDictWord(word);
+  if(!q) return null;
+  try{
+    const stmt=dictionaryDB.prepare(`
+      SELECT
+        p.ipa AS ipa,
+        p.region AS region,
+        d.definition AS definition,
+        d.pos AS pos,
+        d.sub_pos AS sub_pos,
+        wd.example AS example
+      FROM words w
+      LEFT JOIN pronunciations p ON w.id=p.word_id
+      JOIN word_definitions wd ON w.id=wd.word_id
+      JOIN definitions d ON wd.definition_id=d.id
+      WHERE lower(trim(w.word))=?
+      ORDER BY
+        CASE WHEN lower(COALESCE(p.region,'')) LIKE '%us%' THEN 0
+             WHEN lower(COALESCE(p.region,'')) LIKE '%uk%' THEN 1
+             ELSE 2 END,
+        d.pos
+    `);
+    stmt.bind([q]);
+    const rows=[];
+    while(stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    if(!rows.length) return null;
+
+    const ipa=uniqueClean(rows.map(r=>r.ipa));
+    const meanings=uniqueClean(rows.map(r=>r.definition));
+    const pos=uniqueClean(rows.map(r=>[r.pos,r.sub_pos].filter(Boolean).join(' / ')));
+    const examples=uniqueClean(rows.map(r=>r.example));
+
+    return {
+      word,
+      pronunciation:ipa.join(' / '),
+      meaning:meanings.join('; '),
+      partOfSpeech:pos.join(', '),
+      example:examples.slice(0,3).join(' '),
+      definitions:rows.length
+    };
+  }catch(err){
+    console.warn('Dictionary query failed for',word,err);
+    return null;
+  }
+}
+function enrichWordsFromDictionary(words){
+  const rows=[];
+  let matched=0, missing=0, filled=0, overwriteable=0;
+  const fields=['pronunciation','meaning','partOfSpeech','example'];
+
+  words.forEach(w=>{
+    const d=lookupDictionary(w.word);
+    if(!d){ missing++; return; }
+    matched++;
+    const changes={};
+    fields.forEach(f=>{
+      const has=String(w[f]||'').trim();
+      const incoming=String(d[f]||'').trim();
+      if(incoming && !has){ changes[f]={before:'',after:incoming,action:'fill'}; filled++; }
+      else if(incoming && has && has!==incoming){ changes[f]={before:has,after:incoming,action:'overwrite'}; overwriteable++; }
+    });
+    if(Object.keys(changes).length) rows.push({word:w,dictionary:d,changes});
+  });
+  return {rows,matched,missing,filled,overwriteable,total:words.length};
+}
+function applyDictionaryEnrichment(words,preview,overwrite){
+  preview.rows.forEach(item=>{
+    const w=item.word;
+    const d=item.dictionary;
+    ['pronunciation','meaning','partOfSpeech','example'].forEach(f=>{
+      const incoming=String(d[f]||'').trim();
+      if(!incoming) return;
+      if(overwrite || !String(w[f]||'').trim()) w[f]=incoming;
+    });
+  });
+  const res=mergeWords(words);
+  return res;
+}
+function showDictionaryPreview(filename,words,preview){
+  const ov=document.createElement('div');
+  ov.className='sheet-overlay';
+  ov.innerHTML=`
+    <div class="sheet" style="max-height:90vh;max-height:90dvh;">
+      <div class="sheet-grab"></div>
+      <h3>🔎 Preview bổ sung từ điển</h3>
+      <div class="s-ipa">${esc(filename)} · ${preview.total} từ</div>
+
+      <div class="dict-stat-grid">
+        <div class="dict-stat"><b>${preview.matched}</b><span>Tìm thấy</span></div>
+        <div class="dict-stat"><b>${preview.filled}</b><span>Field trống sẽ bổ sung</span></div>
+        <div class="dict-stat"><b>${preview.missing}</b><span>Không tìm thấy</span></div>
+      </div>
+
+      <label class="switch-row" style="margin-top:12px;">
+        <input type="checkbox" id="dictOverwrite">
+        <span>Ghi đè field CSV đã có (${preview.overwriteable} field khác)</span>
+      </label>
+
+      <div class="dict-preview">
+        <table>
+          <thead><tr><th>Từ</th><th>Field</th><th>CSV</th><th>Dictionary</th></tr></thead>
+          <tbody>
+            ${preview.rows.length ? preview.rows.slice(0,300).map(item=>{
+              return Object.entries(item.changes).map(([f,ch])=>`
+                <tr>
+                  <td><b>${esc(item.word.word)}</b></td>
+                  <td>${esc({pronunciation:'IPA',meaning:'Nghĩa',partOfSpeech:'POS',example:'Ví dụ'}[f]||f)}</td>
+                  <td class="${ch.action==='overwrite'?'dict-overwrite':'dict-skip'}">${ch.before?esc(ch.before):'—'}</td>
+                  <td class="${ch.action==='fill'?'dict-fill':'dict-overwrite'}">${esc(ch.after)}</td>
+                </tr>`).join('');
+            }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px;">Không có field nào cần bổ sung.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="btn ghost" id="dictCancel" style="flex:1;">Hủy</button>
+        <button class="btn" id="dictApply" style="flex:1;">✅ Import ${preview.total} từ</button>
+      </div>
+      ${preview.rows.length>300?`<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:7px;">Hiển thị 300 thay đổi đầu tiên; toàn bộ ${preview.rows.length} từ vẫn được xử lý.</div>`:''}
+    </div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>ov.classList.add('show'));
+
+  const close=()=>{ov.classList.remove('show');setTimeout(()=>ov.remove(),250);};
+  ov.addEventListener('click',e=>{if(e.target===ov)close();});
+  ov.querySelector('#dictCancel').onclick=close;
+  ov.querySelector('#dictApply').onclick=()=>{
+    const overwrite=ov.querySelector('#dictOverwrite').checked;
+    const res=applyDictionaryEnrichment(words,preview,overwrite);
+    DB.sources[filename]={count:words.length,enabled:true};
+    save();
+    close();
+    toast(`✅ ${filename}: ${words.length} từ · bổ sung ${preview.filled}${overwrite?` · ghi đè ${preview.overwriteable}`:''}`);
+    render();
+  };
+}
+
+/* ==================================================================
+   CSV IMPORT
+================================================================== */
+
+function importCSVText(text,filename,options={}){
+  const automatic=!!options.automatic;
+  const silent=!!options.silent;
+  const shouldRender=options.render!==false;
+  const fail=message=>{
+    console.warn(message);
+    if(!silent) toast(message);
+    return {ok:false,filename,error:message};
+  };
+
+  const parsed=Papa.parse(text.replace(/^\uFEFF/,''),{skipEmptyLines:true});
+  if(parsed.errors && parsed.errors.length && parsed.data.length<2){
+    return fail('❌ Không thể đọc file: '+filename);
+  }
+  const rows=parsed.data;
+  if(rows.length<2){ return fail('File không có dòng dữ liệu: '+filename); }
+
+  const headers=rows[0];
+  const map=detectMapping(headers);
+
+  if(map.word===undefined){
+    if(automatic) return fail('Không nhận diện được cột từ vựng trong '+filename);
+    const wIdx=prompt('⚠ Không nhận diện được cột "Từ vựng" trong '+filename+'.\nNhập số cột cho TỪ VỰNG (0='+headers[0]+'):','0');
+    map.word=parseInt(wIdx,10);
+    if(!Number.isInteger(map.word) || map.word<0 || map.word>=headers.length) return {ok:false,filename};
+  }
+
+  const dataRows=rows.slice(1).filter(r=>r.some(x=>x && String(x).trim()));
+  const words=dataRows.map(r=>{
+    const word=String(r[map.word]||'').trim();
+    if(!word) return null;
+    return newWordObj({
+      id:makeId(word,filename),
+      word,
+      pronunciation: map.ipa!==undefined?String(r[map.ipa]||'').trim():'',
+      meaning: map.meaning!==undefined?String(r[map.meaning]||'').trim():'',
+      partOfSpeech: map.pos!==undefined?String(r[map.pos]||'').trim():'',
+      example: map.example!==undefined?String(r[map.example]||'').trim():'',
+      note: map.note!==undefined?String(r[map.note]||'').trim():'',
+      topic: map.topic!==undefined?String(r[map.topic]||'').trim():'',
+      sourceFile:filename
+    });
+  }).filter(Boolean);
+
+  if(!words.length) return fail('Không tìm thấy từ hợp lệ trong '+filename);
+
+  /* Khi tự nạp CSV, tệp nguồn là dữ liệu gốc: bỏ các từ cũ đã bị xóa khỏi tệp,
+     nhưng giữ nguyên tiến độ của những từ vẫn còn trong CSV. */
+  if(automatic){
+    const currentIds=new Set(words.map(w=>w.id));
+    DB.words=DB.words.filter(w=>w.sourceFile!==filename || currentIds.has(w.id));
+  }
+
+  /* Import thủ công vẫn có bước xem trước dictionary; tự động nạp lúc mở trang thì không bật hộp thoại. */
+  if(dictionaryDB && !automatic){
+    const preview=enrichWordsFromDictionary(words);
+    showDictionaryPreview(filename,words,preview);
+    return {ok:true,filename,count:words.length,pending:true};
+  }
+
+  const res=mergeWords(words);
+  DB.sources[filename]=Object.assign({},DB.sources[filename]||{},{count:words.length,enabled:true});
+  save();
+  if(!silent) toast(`✅ ${filename}: ${words.length} từ (mới ${res.added}, cập nhật ${res.merged})`);
+  if(shouldRender) render();
+  return {ok:true,filename,count:words.length,added:res.added,merged:res.merged};
+}
+
+function handleFiles(files){
+  Array.from(files).forEach(f=>{
+    const reader=new FileReader();
+    reader.onload=e=>importCSVText(e.target.result,f.name);
+    reader.onerror=()=>toast('❌ Không thể đọc file: '+f.name);
+    reader.readAsText(f,'UTF-8');
+  });
+}
+
+
+/* ==================================================================
+   AUTO LOAD 3 CSV CÙNG THƯ MỤC
+   Tương thích GitHub Pages và các máy chủ HTTP/HTTPS.
+   Đặt index.html và cả 3 CSV trong cùng thư mục trên repository.
+================================================================== */
+const DEFAULT_CSV_FILES=[
+  'Advanced_Vocab_-_Designed_for_targets_65_and_above_2026-09-26.csv',
+  'Basic_Vocab_-_Recommended_for_targets_below_65_2026-09-26.csv',
+  'Vocab_-_General_Vocab_-_Suitable_for_all_target_scores_2026-09-26.csv'
+];
+let defaultCSVLoadStarted=false;
+
+async function loadDefaultCSVsOnStart(){
+  if(defaultCSVLoadStarted) return;
+  defaultCSVLoadStarted=true;
+
+  if(location.protocol==='file:'){
+    toast('⚠ Trình duyệt chặn tự đọc CSV khi mở bằng file://. Hãy mở bản website qua GitHub Pages hoặc máy chủ HTTP.');
+    return;
+  }
+
+  const results=await Promise.allSettled(DEFAULT_CSV_FILES.map(async filename=>{
+    const url=new URL(filename,window.location.href);
+    const response=await fetch(url.href,{cache:'no-store'});
+    if(!response.ok) throw new Error(filename+' (HTTP '+response.status+')');
+    const content=await response.text();
+    const imported=importCSVText(content,filename,{automatic:true,silent:true,render:false});
+    if(!imported.ok) throw new Error(imported.error||('Không đọc được '+filename));
+    return imported;
+  }));
+
+  const loaded=results.filter(r=>r.status==='fulfilled').map(r=>r.value);
+  const failed=results.map((r,i)=>r.status==='rejected'?DEFAULT_CSV_FILES[i]+': '+(r.reason&&r.reason.message||'lỗi không xác định'):null).filter(Boolean);
+
+  if(loaded.length){
+    /* Bỏ dữ liệu DEMO cũ nếu có; không thay đổi trạng thái học của các từ đã nhập từ CSV. */
+    const hadDemo=DB.words.some(w=>w.sourceFile==='Demo');
+    if(hadDemo){
+      DB.words=DB.words.filter(w=>w.sourceFile!=='Demo');
+      delete DB.sources.Demo;
+      if(learnQueue.some(w=>w.sourceFile==='Demo')){ learnQueue=[]; learnIdx=0; }
+    }
+    save();
+    render();
+    const total=loaded.reduce((sum,r)=>sum+r.count,0);
+    if(loaded.length===DEFAULT_CSV_FILES.length){
+      toast(`✅ Đã tự nạp ${loaded.length} bộ từ (${total.toLocaleString('vi-VN')} dòng từ vựng).`);
+    }else{
+      toast(`⚠ Đã nạp ${loaded.length}/${DEFAULT_CSV_FILES.length} bộ CSV. Kiểm tra lại file bị thiếu hoặc lỗi.`);
+      console.warn('CSV auto-load details:',failed);
+    }
+    return;
+  }
+
+  if(DB.words.length===0 && location.protocol!=='file:') loadDemoIfEmpty();
+  render();
+  console.error('Không thể tự động nạp bộ CSV:',failed);
+  console.info('GitHub Pages: xác nhận 3 CSV đã được commit cùng thư mục với trang HTML và giữ nguyên tên file.');
+  toast('⚠ Không tự nạp được CSV. Hãy kiểm tra 3 file CSV cùng thư mục với index.html và thử tải lại trang.');
+}
+
+/* ==================================================================
+   DEMO LOAD
+================================================================== */
+function loadDemoIfEmpty(){
+  if(DB.words.length===0){
+    const words=DEMO.map(([word,ipa,meaning,pos,example,note])=>newWordObj({
+      id:makeId(word,'Demo'),word,pronunciation:ipa,meaning,partOfSpeech:pos,example,note,sourceFile:'Demo'
+    }));
+    DB.words=words;
+    DB.sources['Demo']={count:words.length,enabled:true};
+    save();
+  }
+}
+/* DEMO chỉ được nạp làm dữ liệu dự phòng nếu không thể tải các CSV mặc định. */
+
+/* ==================================================================
+   THEME
+================================================================== */
+function applyTheme(){
+  document.documentElement.setAttribute('data-theme', DB.settings.theme==='dark'?'dark':'light');
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', DB.settings.theme==='dark'?'#000000':'#f2f2f4');
+}
+applyTheme();
+
+/* ==================================================================
+   KEYBOARD (desktop)
+================================================================== */
+document.addEventListener('keydown',e=>{
+  if(CURRENT_PAGE!=='learn') return;
+  const slide=feedEl && feedEl.querySelector('.slide[data-idx="'+learnIdx+'"]');
+  if(e.code==='Space'){ e.preventDefault(); if(slide) slide.classList.toggle('flipped'); }
+  else if(e.key==='ArrowDown'||e.key==='j'){ e.preventDefault(); feedGoTo(learnIdx+1); }
+  else if(e.key==='ArrowUp'||e.key==='k'){ e.preventDefault(); feedGoTo(Math.max(0,learnIdx-1)); }
+  else if(e.key==='r'){ const w=learnQueue[learnIdx]; if(w) speak(w.word); }
+});
+
+/* Nạp dictionary đã lưu trong IndexedDB nếu người dùng từng kết nối */
+initDictionaryFromCache().then(()=>{
+  if(CURRENT_PAGE==='profile') render();
+}).catch(()=>{});
+
+/* ==================================================================
+   INIT
+================================================================== */
+render();
+loadDefaultCSVsOnStart();
+</script>
+</body>
+</html>

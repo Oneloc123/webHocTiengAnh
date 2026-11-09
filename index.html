@@ -431,6 +431,7 @@ input,select,textarea{font-family:inherit;font-size:16px;}
   .app{max-width:520px;margin:0 auto;border-left:1px solid var(--border);border-right:1px solid var(--border);}
   .bottomnav{max-width:520px;}
 }
+.slide.reverse-mode .big-word{font-size:clamp(23px,7vw,36px);line-height:1.22;}
 </style>
 </head>
 <body>
@@ -469,6 +470,8 @@ if(!DB.cardHistory) DB.cardHistory={log:[],lastWordId:null,lastQueueIds:null,las
 if(!DB.cardHistory.log) DB.cardHistory.log=[];
 if(!DB.sourceProgress) DB.sourceProgress={};
 if(!DB.settings) DB.settings={theme:'dark',dailyGoal:20,soundOn:true};
+DB.settings.reverseCards=DB.settings.reverseCards===true;
+let reverseCards=DB.settings.reverseCards;
 if(!DB.statistics) DB.statistics={totalReviews:0,totalCorrect:0,totalWrong:0,history:{}};
 if(!DB.streak) DB.streak={count:0,lastDate:null};
 if(!DB.sources) DB.sources={};
@@ -664,6 +667,33 @@ function touchSourceProgress(w){
    QUEUE / HISTORY
 ================================================================== */
 let learnQueue=[], learnIdx=0, currentSource=null, currentTopic=null;
+function getDailyRandomWords(limit=100){
+  let pool=DB.words.filter(w=>w.sourceFile && w.sourceFile!=='Demo' && w.sourceFile!=='Thêm thủ công');
+  if(!pool.length) pool=DB.words.filter(w=>w.sourceFile!=='Demo');
+  if(!pool.length) pool=DB.words.slice();
+  pool=pool.slice().sort((a,b)=>{
+    const x=String(a.id||a.word), y=String(b.id||b.word);
+    return x<y?-1:x>y?1:0;
+  });
+  const seen=new Set();
+  pool=pool.filter(w=>{
+    const key=String(w.word||'').trim().toLowerCase();
+    if(!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const now=new Date();
+  const dateKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  let seed=2166136261;
+  for(let i=0;i<dateKey.length;i++) seed=Math.imul(seed^dateKey.charCodeAt(i),16777619)>>>0;
+  const random=()=>{ seed=(Math.imul(seed,1664525)+1013904223)>>>0; return seed/4294967296; };
+  const shuffled=pool.slice();
+  for(let i=shuffled.length-1;i>0;i--){
+    const j=Math.floor(random()*(i+1));
+    [shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];
+  }
+  return shuffled.slice(0,limit);
+}
 let _resumeToast=null;
 let _queueIdsRef=null, _queueIdsCache=null;
 /* Cache danh sách id của hàng đợi — tránh map lại toàn bộ mảng mỗi lần lướt sang thẻ mới */
@@ -840,7 +870,7 @@ function gradFor(id){
 
 function slideHTML(w,idx){
   const fav = w.favorite ? '⭐' : '☆';
-  return `<section class="slide" data-idx="${idx}" data-id="${esc(w.id)}">
+  return `<section class="slide${reverseCards?' reverse-mode':''}" data-idx="${idx}" data-id="${esc(w.id)}">
     <div class="slide-bg" style="background:${gradFor(w.id)}"></div>
 
     <div class="slide-meta">
@@ -852,15 +882,15 @@ function slideHTML(w,idx){
     <div class="slide-inner">
       <div class="card-stack">
         <div class="word-block">
-          <div class="big-word">${esc(w.word)}</div>
-          <div class="ipa">${esc(w.pronunciation||'')}</div>
+          <div class="big-word">${esc(reverseCards ? w.meaning : w.word)}</div>
+          <div class="ipa">${esc(reverseCards ? 'Đoán từ tiếng Anh' : (w.pronunciation||''))}</div>
         </div>
         <div class="detail detail-front">
-          <div class="tap-hint">👆 Chạm để xem nghĩa</div>
+          <div class="tap-hint">${reverseCards?'👆 Chạm để xem từ tiếng Anh':'👆 Chạm để xem nghĩa'}</div>
         </div>
         <div class="detail detail-back">
           <div class="divider"></div>
-          <div class="meaning">${esc(w.meaning)}</div>
+          ${reverseCards?`<div class="meaning">${esc(w.word)}</div>${w.pronunciation?`<div class="ipa">${esc(w.pronunciation)}</div>`:''}<div class="note">Nghĩa: ${esc(w.meaning)}</div>`:`<div class="meaning">${esc(w.meaning)}</div>`}
           ${w.partOfSpeech?`<div class="pos">${esc(w.partOfSpeech)}</div>`:''}
           ${w.example?`<div class="example">“${esc(w.example)}”</div>`:''}
           ${w.note?`<div class="note">📝 ${esc(w.note)}</div>`:''}
@@ -887,11 +917,11 @@ function slideHTML(w,idx){
 
 function renderFeedPage(c){
   if(!learnQueue.length){
-    /* Mở lại app → khôi phục đúng buổi học đang dở; nếu không có thì dựng hàng đợi mới */
-    if(!restoreSession()){
-      let pool=DB.words.filter(w=>w.status!=='learned');
-      if(!pool.length) pool=DB.words.slice();
-      if(pool.length) buildLearnQueue(pool);
+    /* Nếu chưa chọn một bộ từ/chủ đề cụ thể, dùng 100 từ ổn định theo ngày. */
+    const restored=restoreSession();
+    if(!restored || (!currentSource && !currentTopic)){
+      const dailyPool=getDailyRandomWords(100);
+      if(dailyPool.length) buildLearnQueue(dailyPool,{freshStart:true});
     }
   }
 
@@ -911,6 +941,7 @@ function renderFeedPage(c){
     <div class="feed-head">
       <div class="feed-tabs">
         <button class="ftab active" data-f="learning">📖 Đang học</button>
+        <button class="ftab ${reverseCards?'active':''}" id="reverseModeBtn" type="button">${reverseCards?'🇻🇳 → EN':'EN → 🇻🇳'}</button>
       </div>
       <div class="feed-head-right">
         <button class="icon-btn" id="streakBtn">🔥 ${DB.streak.count||0}</button>
@@ -966,6 +997,14 @@ function renderFeedPage(c){
 
   c.querySelector('#streakBtn').onclick=()=>{
     toast(`🔥 Chuỗi ${DB.streak.count||0} ngày · Hôm nay ôn ${counts().dueToday} từ`);
+  };
+  const reverseBtn=c.querySelector('#reverseModeBtn');
+  if(reverseBtn) reverseBtn.onclick=()=>{
+    reverseCards=!reverseCards;
+    DB.settings.reverseCards=reverseCards;
+    save();
+    render();
+    toast(reverseCards?'🇻🇳 Đang kiểm tra từ tiếng Việt → tiếng Anh':'🇬🇧 Đang học từ tiếng Anh → tiếng Việt');
   };
 
   /* event delegation */
@@ -2072,14 +2111,16 @@ function handleFiles(files){
 
 
 /* ==================================================================
-   AUTO LOAD 3 CSV CÙNG THƯ MỤC
+   AUTO LOAD CÁC CSV CÙNG THƯ MỤC
    Tương thích GitHub Pages và các máy chủ HTTP/HTTPS.
-   Đặt index.html và cả 3 CSV trong cùng thư mục trên repository.
+   Đặt index.html và các CSV mặc định trong cùng thư mục trên repository.
 ================================================================== */
 const DEFAULT_CSV_FILES=[
   'Advanced_Vocab_-_Designed_for_targets_65_and_above_2026-09-26.csv',
   'Basic_Vocab_-_Recommended_for_targets_below_65_2026-09-26.csv',
-  'Vocab_-_General_Vocab_-_Suitable_for_all_target_scores_2026-09-26.csv'
+  'Vocab_-_General_Vocab_-_Suitable_for_all_target_scores_2026-09-26.csv',
+  'Phrasal_Verbs.csv',
+  'Noun_Phrases.csv'
 ];
 let defaultCSVLoadStarted=false;
 
@@ -2114,6 +2155,10 @@ async function loadDefaultCSVsOnStart(){
       if(learnQueue.some(w=>w.sourceFile==='Demo')){ learnQueue=[]; learnIdx=0; }
     }
     save();
+    if(!currentSource && !currentTopic){
+      const dailyPool=getDailyRandomWords(100);
+      if(dailyPool.length) buildLearnQueue(dailyPool,{freshStart:true});
+    }
     render();
     const total=loaded.reduce((sum,r)=>sum+r.count,0);
     if(loaded.length===DEFAULT_CSV_FILES.length){
@@ -2128,8 +2173,8 @@ async function loadDefaultCSVsOnStart(){
   if(DB.words.length===0 && location.protocol!=='file:') loadDemoIfEmpty();
   render();
   console.error('Không thể tự động nạp bộ CSV:',failed);
-  console.info('GitHub Pages: xác nhận 3 CSV đã được commit cùng thư mục với trang HTML và giữ nguyên tên file.');
-  toast('⚠ Không tự nạp được CSV. Hãy kiểm tra 3 file CSV cùng thư mục với index.html và thử tải lại trang.');
+  console.info('GitHub Pages: xác nhận các CSV mặc định đã được commit cùng thư mục với trang HTML và giữ nguyên tên file.');
+  toast('⚠ Không tự nạp được CSV. Hãy kiểm tra các file CSV mặc định cùng thư mục với index.html và thử tải lại trang.');
 }
 
 /* ==================================================================
